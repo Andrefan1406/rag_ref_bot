@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+requests
+pymupdf
+numpy
+faiss-cpu
+scikit-learn
+python-multipart
