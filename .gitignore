@@ -1,0 +1,30 @@
+# virtual env
+.venv/
+venv/
+
+# python cache
+__pycache__/
+*.pyc
+
+# secrets
+.env
+
+# RAG data (generated)
+data/index/
+data/pdfs/
+data/*.faiss
+data/*.npy
+data/*.jsonl
+
+# OS / IDE
+.DS_Store
+.vscode/
+
+static/index.txt
+
+*.faiss
+*.pkl
+data/
+.ipynb_checkpoints/
+*.docx
+
