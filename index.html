@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG Bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary-color: #10a37f;
+      --primary-hover: #0d8a6a;
+      --bg-primary: #ffffff;
+      --bg-secondary: #f7f7f8;
+      --bg-tertiary: #ececf1;
+      --text-primary: #343541;
+      --text-secondary: #6e6e80;
+      --border-color: #e5e5e5;
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      --radius-md: 10px;
+      --radius-lg: 12px;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--primary-color), #1a7f64);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 18px;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .header-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .main-content {
+      padding: 40px 20px;
+    }
+
+    .layout {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--bg-primary);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      padding: 32px;
+      margin-bottom: 24px;
+      border: 1px solid var(--border-color);
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .input-container {
+      position: relative;
+      margin-bottom: 20px;
+    }
+
+    .input-field {
+      width: 100%;
+      min-height: 120px;
+      padding: 16px 48px 16px 16px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-family: inherit;
+      font-size: 15px;
+      line-height: 1.6;
+      resize: vertical;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(16, 163, 127, 0.1);
+    }
+
+    .char-counter {
+      position: absolute;
+      bottom: 12px;
+      right: 16px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .button-group {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: var(--radius-md);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary-color);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--border-color);
+    }
+
+    .right-panel {
+      position: sticky;
+      top: 96px;
+    }
+
+    .kb-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .kb-btn {
+      width: 100%;
+      justify-content: flex-start;
+      text-align: left;
+    }
+
+    .kb-btn.active {
+      background: var(--primary-color);
+      color: white;
+    }
+
+    .kb-status {
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .loading {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      color: var(--text-secondary);
+    }
+
+    .loading.visible {
+      display: flex;
+    }
+
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border-color);
+      border-top-color: var(--primary-color);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .status {
+      padding: 12px 16px;
+      border-radius: var(--radius-md);
+      margin-top: 16px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .status.visible {
+      display: block;
+    }
+
+    .status-success {
+      background: rgba(16, 163, 127, 0.1);
+      color: #065f46;
+      border-left: 3px solid var(--primary-color);
+    }
+
+    .status-error {
+      background: rgba(239, 68, 68, 0.1);
+      color: #991b1b;
+      border-left: 3px solid #ef4444;
+    }
+
+    .output-section {
+      margin-top: 32px;
+      display: none;
+    }
+
+    .output-section.visible {
+      display: block;
+    }
+
+    .output-card {
+      background: var(--bg-primary);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--border-color);
+      overflow: hidden;
+    }
+
+    .output-header {
+      background: var(--bg-secondary);
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+    }
+
+    .output-content {
+      padding: 24px;
+      line-height: 1.8;
+      font-size: 15px;
+    }
+
+    .output-content h1,
+    .output-content h2,
+    .output-content h3 {
+      margin-top: 24px;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+
+    .output-content p {
+      margin-bottom: 16px;
+    }
+
+    .output-content ul,
+    .output-content ol {
+      margin-bottom: 16px;
+      padding-left: 24px;
+    }
+
+    .output-content code {
+      background: var(--bg-tertiary);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .output-content pre {
+      background: var(--bg-secondary);
+      padding: 16px;
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      margin-bottom: 16px;
+    }
+
+    .output-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+    }
+
+    .output-content th,
+    .output-content td {
+      padding: 10px 12px;
+      border: 1px solid var(--border-color);
+      text-align: left;
+    }
+
+    .output-content th {
+      background: var(--bg-secondary);
+      font-weight: 600;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .right-panel {
+        position: static;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .main-content {
+        padding: 20px 0;
+      }
+
+      .card {
+        border-radius: 0;
+        padding: 20px;
+      }
+
+      .button-group {
+        flex-direction: column;
+      }
+
+      .btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">R</div>
+      <div>
+        <h1>RAG Bot</h1>
+        <div class="header-subtitle">Интеллектуальная система поиска по базе знаний</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <div class="layout">
+      <section>
+        <div class="card">
+          <div class="card-title">Задайте вопрос</div>
+
+          <div class="input-container">
+            <textarea
+              id="questionInput"
+              class="input-field"
+              placeholder="Введите ваш вопрос по выбранной базе знаний..."
+              maxlength="2000"
+            ></textarea>
+            <span class="char-counter"><span id="charCount">0</span>/2000</span>
+          </div>
+
+          <div class="button-group">
+            <button id="askBtn" class="btn btn-primary">Получить ответ</button>
+            <button id="clearBtn" class="btn btn-secondary">Очистить</button>
+          </div>
+
+          <div id="statusMessage" class="status"></div>
+        </div>
+
+        <div id="loading" class="loading">
+          <div class="spinner"></div>
+          <span id="loadingText">Обработка запроса...</span>
+        </div>
+
+        <div id="outputSection" class="output-section">
+          <div class="output-card">
+            <div class="output-header">Результат</div>
+            <div id="outputContent" class="output-content"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="right-panel">
+        <div class="card">
+          <div class="card-title">Базы знаний</div>
+
+          <div class="kb-list">
+            <button class="btn btn-secondary kb-btn active" data-kb="default" data-title="Оптика и светотехника">
+              Оптика и светотехника
+            </button>
+
+            <button class="btn btn-secondary kb-btn" data-kb="ovk" data-title="ОВ и К">
+              ОВ и К
+            </button>
+
+            <button class="btn btn-secondary kb-btn" data-kb="bess" data-title="BESS">
+              BESS
+            </button>
+          </div>
+
+          <div id="kbStatus" class="kb-status">
+            Активная база: Оптика и светотехника
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <script>
+    const API_URL = 'http://127.0.0.1:8000/api';
+
+    const questionInput = document.getElementById('questionInput');
+    const charCount = document.getElementById('charCount');
+    const askBtn = document.getElementById('askBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const loading = document.getElementById('loading');
+    const loadingText = document.getElementById('loadingText');
+    const outputSection = document.getElementById('outputSection');
+    const outputContent = document.getElementById('outputContent');
+    const statusMessage = document.getElementById('statusMessage');
+    const kbButtons = document.querySelectorAll('.kb-btn');
+    const kbStatus = document.getElementById('kbStatus');
+
+    function showLoading(text = 'Обработка запроса...') {
+      loadingText.textContent = text;
+      loading.classList.add('visible');
+      askBtn.disabled = true;
+      kbButtons.forEach(btn => btn.disabled = true);
+    }
+
+    function hideLoading() {
+      loading.classList.remove('visible');
+      askBtn.disabled = false;
+      kbButtons.forEach(btn => btn.disabled = false);
+    }
+
+    function showStatus(message, type = 'success') {
+      statusMessage.textContent = message;
+      statusMessage.className = `status visible status-${type}`;
+    }
+
+    function hideStatus() {
+      statusMessage.className = 'status';
+      statusMessage.textContent = '';
+    }
+
+    questionInput.addEventListener('input', () => {
+      charCount.textContent = questionInput.value.length;
+    });
+
+    questionInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        askQuestion();
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      questionInput.value = '';
+      charCount.textContent = '0';
+      outputSection.classList.remove('visible');
+      outputContent.innerHTML = '';
+      hideStatus();
+    });
+
+    askBtn.addEventListener('click', askQuestion);
+
+    async function askQuestion() {
+      const question = questionInput.value.trim();
+
+      if (!question) {
+        showStatus('Введите вопрос.', 'error');
+        return;
+      }
+
+      hideStatus();
+      outputSection.classList.remove('visible');
+      outputContent.innerHTML = '';
+      showLoading('Ищу ответ в выбранной базе знаний...');
+
+      try {
+        const response = await fetch(`${API_URL}/ask`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ question })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || data.answer || 'Ошибка получения ответа');
+        }
+
+        const answer = data.answer || 'Ответ не сформирован.';
+        outputContent.innerHTML = marked.parse(answer);
+        outputSection.classList.add('visible');
+        showStatus('Ответ готов.', 'success');
+      } catch (error) {
+        outputContent.textContent = `Ошибка: ${error.message}`;
+        outputSection.classList.add('visible');
+        showStatus(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    kbButtons.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const kbName = btn.dataset.kb;
+        const kbTitle = btn.dataset.title;
+
+        hideStatus();
+        showLoading('Переключаю базу знаний...');
+
+        try {
+          const response = await fetch(`${API_URL}/switch-kb`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ kb_name: kbName })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.detail || 'Ошибка переключения базы знаний');
+          }
+
+          kbButtons.forEach(button => button.classList.remove('active'));
+          btn.classList.add('active');
+
+          kbStatus.textContent = `Активная база: ${data.title || kbTitle}`;
+          showStatus(`База знаний переключена: ${data.title || kbTitle}`, 'success');
+        } catch (error) {
+          showStatus(error.message, 'error');
+        } finally {
+          hideLoading();
+        }
+      });
+    });
+  </script>
+</body>
+</html>
