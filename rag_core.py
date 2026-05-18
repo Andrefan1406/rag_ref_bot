@@ -234,6 +234,116 @@ LLM_MODEL = "gpt-oss:120b-cloud"
 DJVUTXT = r'C:\Users\a.kuznecov\DjVuLibre-3.5.17-win32\djvutxt.exe'
 DJVUSED = r'C:\Users\a.kuznecov\DjVuLibre-3.5.17-win32\djvused.exe'
 
+def count_pdf_text_chars(pdf_path: str, max_pages: int = 5) -> int:
+    doc = fitz.open(pdf_path)
+    limit = min(max_pages, len(doc))
+
+    total_chars = 0
+
+    for i in range(limit):
+        text = doc[i].get_text("text") or ""
+        total_chars += len(text.strip())
+
+    doc.close()
+    return total_chars
+
+
+def detect_pdf_type(pdf_path: str, max_pages: int = 5) -> str:
+    chars = count_pdf_text_chars(pdf_path, max_pages=max_pages)
+
+    if chars > 0:
+        return "pdf_text_layer"
+
+    return "pdf_scanned_ocr"
+
+
+def count_djvu_text_chars(djvu_path: str, max_pages: int = 5) -> int:
+    total_pages = get_djvu_page_count(djvu_path)
+    limit = min(max_pages, total_pages)
+
+    total_chars = 0
+
+    for page_num in range(1, limit + 1):
+        text = extract_djvu_page_text(djvu_path, page_num) or ""
+        total_chars += len(text.strip())
+
+    return total_chars
+
+
+def detect_djvu_type(djvu_path: str, max_pages: int = 5) -> str:
+    chars = count_djvu_text_chars(djvu_path, max_pages=max_pages)
+
+    if chars > 0:
+        return "djvu_text_layer"
+
+    return "djvu_scanned_ocr"
+
+
+def detect_document_type(file_path: str) -> str:
+    suffix = Path(file_path).suffix.lower()
+
+    if suffix == ".pdf":
+        return detect_pdf_type(file_path)
+
+    if suffix == ".djvu":
+        return detect_djvu_type(file_path)
+
+    raise ValueError("Поддерживаются только PDF и DJVU")
+
+def add_document_to_kb(
+    file_path: str,
+    kb_name: str,
+    source_name: str = None
+):
+    if source_name is None:
+        source_name = Path(file_path).stem
+
+    doc_type = detect_document_type(file_path)
+
+    connect_kb(kb_name)
+
+    before_chunks = len(GLOBAL_CHUNKS)
+
+    if doc_type == "pdf_text_layer":
+        build_knowledge_base_from_pdf(
+            pdf_path=file_path,
+            source_name=source_name,
+            use_ocr_if_no_text=False,
+            save=True
+        )
+
+    elif doc_type == "pdf_scanned_ocr":
+        build_knowledge_base_from_pdf(
+            pdf_path=file_path,
+            source_name=source_name,
+            use_ocr_if_no_text=True,
+            ocr_lang="eng+rus",
+            ocr_dpi=300,
+            save=True
+        )
+
+    elif doc_type == "djvu_text_layer":
+        build_knowledge_base_from_djvu(
+            djvu_path=file_path,
+            source_name=source_name,
+            save=True
+        )
+
+    elif doc_type == "djvu_scanned_ocr":
+        raise NotImplementedError(
+            "DJVU без текстового слоя требует предварительной конвертации страниц в изображения/PDF для OCR."
+        )
+
+    after_chunks = len(GLOBAL_CHUNKS)
+
+    return {
+        "kb_name": kb_name,
+        "source_name": source_name,
+        "document_type": doc_type,
+        "chunks_count": after_chunks - before_chunks,
+        "total_chunks": after_chunks
+    }
+
 VERBOSE = True
 
 load_dotenv()
