@@ -565,6 +565,43 @@
         font-size: 22px;
       }
     }
+
+    .message {
+      display: flex;
+      margin-bottom: 24px;
+    }
+
+    .message.user {
+      justify-content: flex-end;
+    }
+
+    .message.bot {
+      justify-content: flex-start;
+    }
+
+    .message-bubble {
+      max-width: 78%;
+      padding: 14px 16px;
+      border-radius: 18px;
+      line-height: 1.65;
+      font-size: 15px;
+    }
+
+    .message.user .message-bubble {
+      background: #303030;
+      color: #ececec;
+      border-bottom-right-radius: 6px;
+    }
+
+    .message.bot .message-bubble {
+      background: transparent;
+      color: #ececec;
+      max-width: 100%;
+    }
+
+    .welcome.hidden {
+      display: none;
+    }
   </style>
 </head>
 
@@ -676,6 +713,34 @@
     const kbButtons = document.querySelectorAll('.kb-btn');
     const kbStatus = document.getElementById('kbStatus');
 
+    const welcome = document.querySelector('.welcome');
+    const chatScroll = document.querySelector('.chat-scroll');
+
+    function addMessage(role, content, isMarkdown = false) {
+      if (welcome) {
+        welcome.classList.add('hidden');
+      }
+
+      const message = document.createElement('div');
+      message.className = `message ${role}`;
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble';
+
+      if (isMarkdown) {
+        bubble.innerHTML = marked.parse(content);
+      } else {
+        bubble.textContent = content;
+      }
+
+      message.appendChild(bubble);
+
+      outputSection.classList.add('visible');
+      outputContent.appendChild(message);
+
+      chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+
     function showLoading(text = 'Обработка запроса...') {
       loadingText.textContent = text;
       loading.classList.add('visible');
@@ -729,8 +794,12 @@
       }
 
       hideStatus();
-      outputSection.classList.remove('visible');
-      outputContent.innerHTML = '';
+
+      addMessage('user', question);
+
+      questionInput.value = '';
+      charCount.textContent = '0';
+
       showLoading('Ищу ответ в выбранной базе знаний...');
 
       try {
@@ -749,14 +818,12 @@
         }
 
         const answer = data.answer || 'Ответ не сформирован.';
-        outputContent.innerHTML = marked.parse(answer);
-        outputSection.classList.add('visible');
+        addMessage('bot', answer, true);
         showStatus('Ответ готов.', 'success');
       } catch (error) {
-        outputContent.textContent = `Ошибка: ${error.message}`;
-        outputSection.classList.add('visible');
+        addMessage('bot', `Ошибка: ${error.message}`);
         showStatus(error.message, 'error');
-      } finally {
+        } finally {
         hideLoading();
       }
     }
