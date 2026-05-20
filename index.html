@@ -28,6 +28,8 @@
       --radius-lg: 18px;
       --radius-md: 12px;
       --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      --progress-from: rgba(37, 99, 235, 0.55);
+      --progress-to: rgba(20, 184, 166, 0.65);
     }
 
     html,
@@ -393,6 +395,41 @@
       background: rgba(239, 68, 68, 0.08);
     }
 
+    .upload-progress {
+      display: none;
+      width: min(900px, 100%);
+      margin: 14px auto 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      border: 1px solid var(--input-border);
+      background: var(--panel-bg);
+      box-shadow: var(--shadow);
+    }
+
+    .upload-progress.visible {
+      display: block;
+    }
+
+    .upload-progress-fill {
+      width: 0%;
+      min-height: 58px;
+      padding: 12px 14px;
+      background: linear-gradient(90deg, var(--progress-from), var(--progress-to));
+      transition: width 0.35s ease;
+    }
+
+    .upload-progress-title {
+      color: var(--text-main);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .upload-progress-meta {
+      margin-top: 5px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
     .composer {
       position: absolute;
       left: 0;
@@ -647,39 +684,6 @@
       display: inline-block;
       animation: spin 0.8s linear infinite;
     }
-    .upload-status-box {
-      position: relative;
-      width: 100%;
-      max-width: 900px;
-      height: 44px;
-      margin: 20px auto;
-      border-radius: 14px;
-      background: rgba(20, 20, 20, 0.9);
-      border: 1px solid rgba(255,255,255,0.08);
-      overflow: hidden;
-    }
-
-    .upload-progress-fill {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 0%;
-      height: 100%;
-      background: linear-gradient(90deg, #2563eb, #3b82f6);
-      transition: width 0.4s ease;
-      z-index: 1;
-    }
-
-    .upload-status-text {
-      position: relative;
-      z-index: 2;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      padding: 0 16px;
-      color: white;
-      font-size: 14px;
-    }
   </style>
 </head>
 
@@ -762,11 +766,11 @@
             </div>
           </div>
 
-          <div id="uploadStatusBox" class="upload-status-box" style="display:none;">
-            <div id="uploadProgressFill" class="upload-progress-fill"></div>
-
-            <div id="uploadStatusText" class="upload-status-text">
-              Загружаю документ...
+          <div id="statusMessage" class="status"></div>
+          <div id="uploadProgress" class="upload-progress">
+            <div id="uploadProgressFill" class="upload-progress-fill">
+              <div id="uploadProgressTitle" class="upload-progress-title">Подготовка загрузки...</div>
+              <div id="uploadProgressMeta" class="upload-progress-meta">0%</div>
             </div>
           </div>
         </div>
@@ -810,6 +814,13 @@
     const outputSection = document.getElementById('outputSection');
     const outputContent = document.getElementById('outputContent');
     const statusMessage = document.getElementById('statusMessage');
+    const uploadProgress = document.getElementById('uploadProgress');
+    const uploadProgressFill = document.getElementById('uploadProgressFill');
+    const uploadProgressTitle = document.getElementById('uploadProgressTitle');
+    const uploadProgressMeta = document.getElementById('uploadProgressMeta');
+
+    let uploadEventSource = null;
+
     const kbButtons = document.querySelectorAll('.kb-btn');
     const kbStatus = document.getElementById('kbStatus');
 
@@ -851,42 +862,82 @@
 
       selectedUploadBtn.classList.add('loading');
       selectedUploadBtn.disabled = true;
-      showStatus(`Загружаю документ "${file.name}" в базу ${selectedUploadKb}...`, 'success');
-      updateUploadProgress(10, "Сохраняю файл");
+
+      showUploadProgress(1, 'Загрузка файла на сервер', file.name, 'старт');
+      showStatus(`Добавляю документ "${file.name}" в базу ${selectedUploadKb}...`, 'success');
 
       try {
-        updateUploadProgress(35, "Извлекаю текст");
         const response = await fetch(`${API_URL}/upload-doc`, {
           method: 'POST',
           body: formData
         });
 
-        updateUploadProgress(70, "Создаю эмбеддинги");
-
         const data = await response.json();
-
-        updateUploadProgress(100, "Документ добавлен");
 
         if (!response.ok) {
           throw new Error(data.detail || data.error || 'Ошибка загрузки документа');
         }
 
-        showStatus(
-          `Документ загружен. Тип: ${data.document_type}. Чанков добавлено: ${data.chunks_count}.`,
-          'success'
-        );
+        if (uploadEventSource) {
+          uploadEventSource.close();
+        }
+
+        uploadEventSource = new EventSource(`${API_URL}/upload-status/${data.upload_id}`);
+
+        uploadEventSource.onmessage = (event) => {
+          const progress = JSON.parse(event.data);
+
+          showUploadProgress(
+            progress.percentage || 0,
+            progress.status_text || 'Обработка документа',
+            progress.book_name || file.name,
+            progress.eta || ''
+          );
+
+          if (progress.error) {
+            showStatus(progress.error, 'error');
+            uploadEventSource.close();
+            selectedUploadBtn.classList.remove('loading');
+            selectedUploadBtn.disabled = false;
+            return;
+          }
+
+          if (progress.done) {
+            uploadEventSource.close();
+
+            const result = progress.result || {};
+            showStatus(
+              `Документ загружен. Тип: ${result.document_type || '—'}. Чанков добавлено: ${result.chunks_count || 0}.`,
+              'success'
+            );
+
+            selectedUploadBtn.classList.remove('loading');
+            selectedUploadBtn.disabled = false;
+            hideUploadProgress();
+          }
+        };
+
+        uploadEventSource.onerror = () => {
+          showStatus('Поток статуса загрузки прерван.', 'error');
+
+          if (uploadEventSource) {
+            uploadEventSource.close();
+          }
+
+          selectedUploadBtn.classList.remove('loading');
+          selectedUploadBtn.disabled = false;
+        };
+
       } catch (error) {
         showStatus(error.message, 'error');
-      } finally {
         selectedUploadBtn.classList.remove('loading');
         selectedUploadBtn.disabled = false;
+        hideUploadProgress(0);
       }
     });
 
     const welcome = document.querySelector('.welcome');
     const chatScroll = document.querySelector('.chat-scroll');
-
-    
 
     function addMessage(role, content, isMarkdown = false) {
       if (welcome) {
@@ -936,6 +987,23 @@
       statusMessage.textContent = '';
     }
 
+    function showUploadProgress(percent, statusText, bookName, eta) {
+      uploadProgress.classList.add('visible');
+
+      uploadProgressFill.style.width = `${percent}%`;
+      uploadProgressTitle.textContent = `${statusText}: ${bookName || ''}`;
+      uploadProgressMeta.textContent = `${percent}%${eta ? ' · ' + eta : ''}`;
+    }
+
+    function hideUploadProgress(delay = 1200) {
+      setTimeout(() => {
+        uploadProgress.classList.remove('visible');
+        uploadProgressFill.style.width = '0%';
+        uploadProgressTitle.textContent = 'Подготовка загрузки...';
+        uploadProgressMeta.textContent = '0%';
+      }, delay);
+    }
+
     questionInput.addEventListener('input', () => {
       charCount.textContent = questionInput.value.length;
     });
@@ -956,24 +1024,6 @@
     });
 
     askBtn.addEventListener('click', askQuestion);
-
-    function updateUploadProgress(progress, message) {
-      const box = document.getElementById("uploadStatusBox");
-      const fill = document.getElementById("uploadProgressFill");
-      const text = document.getElementById("uploadStatusText");
-
-      box.style.display = "block";
-      fill.style.width = progress + "%";
-      text.textContent = `${message} (${progress}%)`;
-
-      if (progress >= 100) {
-        setTimeout(() => {
-          box.style.display = "none";
-        }, 2000);
-      }
-    }
-
-
 
     async function askQuestion() {
       const question = questionInput.value.trim();

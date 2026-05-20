@@ -23,6 +23,7 @@ from PIL import Image
 import pytesseract
 from pytesseract import Output
 import pypandoc
+from typing import Callable
 
 VERBOSE = True
 
@@ -231,8 +232,8 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 EMBED_MODEL = "nomic-embed-text"
 LLM_MODEL = "gpt-oss:120b-cloud"
 
-DJVUTXT = r'C:\Users\a.kuznecov\DjVuLibre-3.5.17-win32\djvutxt.exe'
-DJVUSED = r'C:\Users\a.kuznecov\DjVuLibre-3.5.17-win32\djvused.exe'
+DJVUTXT = 'djvutxt'  # r'C:\Users\a.kuznecov\DjVuLibre-3.5.17-win32\djvutxt.exe'
+DJVUSED = 'djvused'  # r'C:\Users\a.kuznecov\DjVuLibre-3.5.17-win32\djvused.exe'
 
 def count_pdf_text_chars(pdf_path: str, max_pages: int = 5) -> int:
     doc = fitz.open(pdf_path)
@@ -290,16 +291,55 @@ def detect_document_type(file_path: str) -> str:
 
     raise ValueError("Поддерживаются только PDF и DJVU")
 
+def format_eta(start_time: float, percentage: int) -> str:
+    elapsed = time.time() - start_time
+
+    if percentage <= 0:
+        return f"прошло {int(elapsed)} сек"
+
+    total_estimated = elapsed / (percentage / 100)
+    remaining = max(0, total_estimated - elapsed)
+
+    if remaining < 60:
+        return f"осталось ~{int(remaining)} сек"
+
+    return f"осталось ~{round(remaining / 60, 1)} мин"
+
+
+def emit_progress(
+    progress_callback,
+    percentage: int,
+    status_text: str,
+    book_name: str,
+    start_time: float
+):
+    if not progress_callback:
+        return
+
+    progress_callback({
+        "percentage": max(0, min(100, int(percentage))),
+        "status_text": status_text,
+        "book_name": book_name,
+        "eta": format_eta(start_time, percentage),
+    })
+
 def add_document_to_kb(
     file_path: str,
     kb_name: str,
-    source_name: str = None
+    source_name: str = None,
+    progress_callback: Callable[[dict], None] = None
 ):
+    start_time = time.time()
+
     if source_name is None:
         source_name = Path(file_path).stem
 
+    emit_progress(progress_callback, 5, "Сохранение файла завершено", source_name, start_time)
+
+    emit_progress(progress_callback, 10, "Определяю тип документа", source_name, start_time)
     doc_type = detect_document_type(file_path)
 
+    emit_progress(progress_callback, 15, "Подключаю базу знаний", source_name, start_time)
     connect_kb(kb_name)
 
     before_chunks = len(GLOBAL_CHUNKS)
@@ -309,7 +349,11 @@ def add_document_to_kb(
             pdf_path=file_path,
             source_name=source_name,
             use_ocr_if_no_text=False,
-            save=True
+            save=True,
+            progress_callback=progress_callback,
+            progress_start=20,
+            progress_end=95,
+            progress_started_at=start_time,
         )
 
     elif doc_type == "pdf_scanned_ocr":
@@ -319,14 +363,22 @@ def add_document_to_kb(
             use_ocr_if_no_text=True,
             ocr_lang="eng+rus",
             ocr_dpi=300,
-            save=True
+            save=True,
+            progress_callback=progress_callback,
+            progress_start=20,
+            progress_end=95,
+            progress_started_at=start_time,
         )
 
     elif doc_type == "djvu_text_layer":
         build_knowledge_base_from_djvu(
             djvu_path=file_path,
             source_name=source_name,
-            save=True
+            save=True,
+            progress_callback=progress_callback,
+            progress_start=20,
+            progress_end=95,
+            progress_started_at=start_time,
         )
 
     elif doc_type == "djvu_scanned_ocr":
@@ -335,6 +387,8 @@ def add_document_to_kb(
         )
 
     after_chunks = len(GLOBAL_CHUNKS)
+
+    emit_progress(progress_callback, 100, "Документ добавлен", source_name, start_time)
 
     return {
         "kb_name": kb_name,
@@ -1220,22 +1274,29 @@ def build_chunks_from_pdf(
 
 def get_djvu_page_count(djvu_path):
     result = subprocess.run(
-        ['djvused', '-e', 'n', djvu_path], 
+        [DJVUSED, '-e', 'n', djvu_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
     )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr)
+
     return int(result.stdout.strip())
+
 
 def extract_djvu_page_text(djvu_path, page_num):
     result = subprocess.run(
-        ['djvutxt', f'--page={page_num}', djvu_path], # '--page', str(page_num)
+        [DJVUTXT, f'--page={page_num}', djvu_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    text = result.stdout.decode("utf-8", errors="ignore")
-    
-    return text
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode("utf-8", errors="ignore"))
+
+    return result.stdout.decode("utf-8", errors="ignore")
 
 def _extract_one_page(args):
     djvu_path, page_num = args
@@ -1378,9 +1439,19 @@ def djvu_pages_to_blocks(pages):
 
     return blocks
 
-def build_embeddings_for_chunks(chunks):
+def build_embeddings_for_chunks(
+    chunks,
+    progress_callback=None,
+    source_name="Документ",
+    progress_start=55,
+    progress_end=85,
+    progress_started_at=None
+):
     vectors = []
     enriched_chunks = []
+
+    if progress_started_at is None:
+        progress_started_at = time.time()
 
     log("Начинаю создание эмбеддингов...")
 
@@ -1402,10 +1473,22 @@ def build_embeddings_for_chunks(chunks):
 
         enriched_chunks.append(enriched_chunk)
 
+        if progress_callback and total > 0:
+            percent = progress_start + ((i + 1) / total) * (progress_end - progress_start)
+
+            emit_progress(
+                progress_callback,
+                int(percent),
+                f"Генерация эмбеддингов {i + 1}/{total}",
+                source_name,
+                progress_started_at
+            )
+
         if (i + 1) % 10 == 0 or (i + 1) == total:
             log(f"Эмбеддинги: {i + 1}/{total}")
 
     vectors = np.array(vectors, dtype="float32")
+
     log("Создание эмбеддингов завершено.")
     log("Форма массива vectors:", vectors.shape)
 
@@ -1484,7 +1567,11 @@ def build_knowledge_base_from_pdf(
     use_ocr_if_no_text: bool = True,
     ocr_lang: str = 'eng+rus',
     ocr_dpi: int = 300,
-    tesseract_config: str = '--oem 3 --psm6'
+    tesseract_config: str = '--oem 3 --psm6',
+    progress_callback=None,
+    progress_start=20,
+    progress_end=95,
+    progress_started_at=None
 ):
     global GLOBAL_INDEX, GLOBAL_CHUNKS
 
@@ -1499,6 +1586,11 @@ def build_knowledge_base_from_pdf(
     log("=" * 80)
 
     start_time = time.time()
+
+    if progress_started_at is None:
+        progress_started_at = start_time
+
+    emit_progress(progress_callback, progress_start, "Чтение PDF", source_name, progress_started_at)
 
     doc = fitz.open(pdf_path)
     log("Всего страниц в PDF:", len(doc))
@@ -1515,6 +1607,14 @@ def build_knowledge_base_from_pdf(
         tesseract_config=tesseract_config
     )
 
+    emit_progress(
+        progress_callback,
+        50,
+        f"Создание чанков: {len(chunks)}",
+        source_name,
+        progress_started_at
+    )
+
     if not chunks:
         log("Чанки не найдены.")
         return GLOBAL_INDEX, GLOBAL_CHUNKS
@@ -1525,7 +1625,14 @@ def build_knowledge_base_from_pdf(
         log("metadata:", chunks[0].get("metadata"))
         log("text preview:", chunks[0].get("text", "")[:300])
 
-    enriched_chunks, vectors = build_embeddings_for_chunks(chunks)
+    enriched_chunks, vectors = build_embeddings_for_chunks(
+        chunks,
+        progress_callback=progress_callback,
+        source_name=source_name,
+        progress_start=55,
+        progress_end=85,
+        progress_started_at=progress_started_at
+    )
     
     if GLOBAL_INDEX is None or len(GLOBAL_CHUNKS) == 0:
         GLOBAL_INDEX = build_faiss_index(vectors)
@@ -1535,6 +1642,14 @@ def build_knowledge_base_from_pdf(
         GLOBAL_CHUNKS.extend(enriched_chunks)
 
     if save:
+        emit_progress(
+            progress_callback,
+            92,
+            "Сохранение в FAISS индекс",
+            source_name,
+            progress_started_at
+        )
+
         save_active_kb()
 
     elapsed = time.time() - start_time
@@ -1548,17 +1663,27 @@ def build_knowledge_base_from_pdf(
 
     return GLOBAL_INDEX, GLOBAL_CHUNKS
 
+
 def build_knowledge_base_from_djvu(
     djvu_path: str,
     source_name: str = None,
     max_chars: int = 1200,
     overlap: int = 200,
-    save: bool = True
+    save: bool = True,
+    progress_callback=None,
+    progress_start=20,
+    progress_end=95,
+    progress_started_at=None
 ):
     global GLOBAL_INDEX, GLOBAL_CHUNKS
 
     if source_name is None:
         source_name = Path(djvu_path).stem
+
+    start_time = time.time()
+
+    if progress_started_at is None:
+        progress_started_at = start_time
 
     log("=" * 80)
     log("СТАРТ ДОБАВЛЕНИЯ DJVU В БАЗУ")
@@ -1567,13 +1692,35 @@ def build_knowledge_base_from_djvu(
     log("АКТИВНАЯ БАЗА:", get_active_kb())
     log("=" * 80)
 
-    start_time = time.time()
+    emit_progress(
+        progress_callback,
+        progress_start,
+        "Чтение DJVU",
+        source_name,
+        progress_started_at
+    )
 
     pages = extract_djvu_by_pages_fast(djvu_path)
     log("Всего страниц в DJVU:", len(pages))
 
+    emit_progress(
+        progress_callback,
+        40,
+        f"Извлечение текста DJVU: {len(pages)} стр.",
+        source_name,
+        progress_started_at
+    )
+
     blocks = djvu_pages_to_blocks(pages)
     log("Всего блоков:", len(blocks))
+
+    emit_progress(
+        progress_callback,
+        50,
+        f"Создание блоков: {len(blocks)}",
+        source_name,
+        progress_started_at
+    )
 
     chunks = chunk_blocks_with_metadata(
         blocks,
@@ -1583,11 +1730,26 @@ def build_knowledge_base_from_djvu(
     )
     log("Всего чанков:", len(chunks))
 
+    emit_progress(
+        progress_callback,
+        55,
+        f"Создание чанков: {len(chunks)}",
+        source_name,
+        progress_started_at
+    )
+
     if not chunks:
         log("Чанки не найдены.")
         return GLOBAL_INDEX, GLOBAL_CHUNKS
 
-    enriched_chunks, vectors = build_embeddings_for_chunks(chunks)
+    enriched_chunks, vectors = build_embeddings_for_chunks(
+        chunks,
+        progress_callback=progress_callback,
+        source_name=source_name,
+        progress_start=60,
+        progress_end=85,
+        progress_started_at=progress_started_at
+    )
 
     if GLOBAL_INDEX is None or len(GLOBAL_CHUNKS) == 0:
         GLOBAL_INDEX = build_faiss_index(vectors)
@@ -1597,6 +1759,14 @@ def build_knowledge_base_from_djvu(
         GLOBAL_CHUNKS.extend(enriched_chunks)
 
     if save:
+        emit_progress(
+            progress_callback,
+            92,
+            "Сохранение в FAISS индекс",
+            source_name,
+            progress_started_at
+        )
+
         save_active_kb()
 
     elapsed = time.time() - start_time
@@ -1605,7 +1775,7 @@ def build_knowledge_base_from_djvu(
     log("DJVU ДОБАВЛЕНА В БАЗУ")
     log("АКТИВНАЯ БАЗА:", get_active_kb())
     log("Всего чанков:", len(GLOBAL_CHUNKS))
-    log("Векторов в индексе:", GLOBAL_INDEX.ntotal)
+    log("Векторов в индексе:", GLOBAL_INDEX.ntotal if GLOBAL_INDEX is not None else 0)
     log("Время:", round(elapsed / 60, 2), "мин")
     log("=" * 80)
 
