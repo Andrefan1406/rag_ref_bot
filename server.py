@@ -66,5 +66,40 @@ async def ask(req: AskRequest):
 async def start_alias(req: AskRequest):
     return await ask(req)
 
+@app.post("/api/upload-doc")
+async def upload_doc(
+    kb_name: str = Form(...),
+    file: UploadFile = File(...)
+):
+    filename = file.filename or ""
+    suffix = Path(filename).suffix.lower()
+
+    if suffix not in [".pdf", ".djvu"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Поддерживаются только PDF и DJVU"
+        )
+
+    upload_dir = Path("data/uploads") / kb_name
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = Path(filename).name
+    saved_path = upload_dir / safe_name
+
+    with open(saved_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    result = add_document_to_kb(
+        file_path=str(saved_path),
+        kb_name=kb_name,
+        source_name=Path(safe_name).stem
+    )
+
+    return {
+        "success": True,
+        "message": "Документ добавлен в базу знаний",
+        "result": result
+    }    
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")

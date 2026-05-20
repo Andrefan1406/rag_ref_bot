@@ -647,6 +647,39 @@
       display: inline-block;
       animation: spin 0.8s linear infinite;
     }
+    .upload-status-box {
+      position: relative;
+      width: 100%;
+      max-width: 900px;
+      height: 44px;
+      margin: 20px auto;
+      border-radius: 14px;
+      background: rgba(20, 20, 20, 0.9);
+      border: 1px solid rgba(255,255,255,0.08);
+      overflow: hidden;
+    }
+
+    .upload-progress-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #2563eb, #3b82f6);
+      transition: width 0.4s ease;
+      z-index: 1;
+    }
+
+    .upload-status-text {
+      position: relative;
+      z-index: 2;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      color: white;
+      font-size: 14px;
+    }
   </style>
 </head>
 
@@ -729,7 +762,13 @@
             </div>
           </div>
 
-          <div id="statusMessage" class="status"></div>
+          <div id="uploadStatusBox" class="upload-status-box" style="display:none;">
+            <div id="uploadProgressFill" class="upload-progress-fill"></div>
+
+            <div id="uploadStatusText" class="upload-status-text">
+              Загружаю документ...
+            </div>
+          </div>
         </div>
       </section>
 
@@ -813,14 +852,20 @@
       selectedUploadBtn.classList.add('loading');
       selectedUploadBtn.disabled = true;
       showStatus(`Загружаю документ "${file.name}" в базу ${selectedUploadKb}...`, 'success');
+      updateUploadProgress(10, "Сохраняю файл");
 
       try {
+        updateUploadProgress(35, "Извлекаю текст");
         const response = await fetch(`${API_URL}/upload-doc`, {
           method: 'POST',
           body: formData
         });
 
+        updateUploadProgress(70, "Создаю эмбеддинги");
+
         const data = await response.json();
+
+        updateUploadProgress(100, "Документ добавлен");
 
         if (!response.ok) {
           throw new Error(data.detail || data.error || 'Ошибка загрузки документа');
@@ -840,6 +885,8 @@
 
     const welcome = document.querySelector('.welcome');
     const chatScroll = document.querySelector('.chat-scroll');
+
+    
 
     function addMessage(role, content, isMarkdown = false) {
       if (welcome) {
@@ -909,6 +956,24 @@
     });
 
     askBtn.addEventListener('click', askQuestion);
+
+    function updateUploadProgress(progress, message) {
+      const box = document.getElementById("uploadStatusBox");
+      const fill = document.getElementById("uploadProgressFill");
+      const text = document.getElementById("uploadStatusText");
+
+      box.style.display = "block";
+      fill.style.width = progress + "%";
+      text.textContent = `${message} (${progress}%)`;
+
+      if (progress >= 100) {
+        setTimeout(() => {
+          box.style.display = "none";
+        }, 2000);
+      }
+    }
+
+
 
     async function askQuestion() {
       const question = questionInput.value.trim();
