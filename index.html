@@ -28,6 +28,8 @@
       --radius-lg: 18px;
       --radius-md: 12px;
       --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      --progress-from: rgba(37, 99, 235, 0.55);
+      --progress-to: rgba(20, 184, 166, 0.65);
     }
 
     html,
@@ -393,6 +395,41 @@
       background: rgba(239, 68, 68, 0.08);
     }
 
+    .upload-progress {
+      display: none;
+      width: min(900px, 100%);
+      margin: 14px auto 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      border: 1px solid var(--input-border);
+      background: var(--panel-bg);
+      box-shadow: var(--shadow);
+    }
+
+    .upload-progress.visible {
+      display: block;
+    }
+
+    .upload-progress-fill {
+      width: 0%;
+      min-height: 58px;
+      padding: 12px 14px;
+      background: linear-gradient(90deg, var(--progress-from), var(--progress-to));
+      transition: width 0.35s ease;
+    }
+
+    .upload-progress-title {
+      color: var(--text-main);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .upload-progress-meta {
+      margin-top: 5px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
     .composer {
       position: absolute;
       left: 0;
@@ -730,6 +767,12 @@
           </div>
 
           <div id="statusMessage" class="status"></div>
+          <div id="uploadProgress" class="upload-progress">
+            <div id="uploadProgressFill" class="upload-progress-fill">
+              <div id="uploadProgressTitle" class="upload-progress-title">Подготовка загрузки...</div>
+              <div id="uploadProgressMeta" class="upload-progress-meta">0%</div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -771,6 +814,13 @@
     const outputSection = document.getElementById('outputSection');
     const outputContent = document.getElementById('outputContent');
     const statusMessage = document.getElementById('statusMessage');
+    const uploadProgress = document.getElementById('uploadProgress');
+    const uploadProgressFill = document.getElementById('uploadProgressFill');
+    const uploadProgressTitle = document.getElementById('uploadProgressTitle');
+    const uploadProgressMeta = document.getElementById('uploadProgressMeta');
+
+    let uploadEventSource = null;
+
     const kbButtons = document.querySelectorAll('.kb-btn');
     const kbStatus = document.getElementById('kbStatus');
 
@@ -812,7 +862,9 @@
 
       selectedUploadBtn.classList.add('loading');
       selectedUploadBtn.disabled = true;
-      showStatus(`Загружаю документ "${file.name}" в базу ${selectedUploadKb}...`, 'success');
+
+      showUploadProgress(1, 'Загрузка файла на сервер', file.name, 'старт');
+      showStatus(`Добавляю документ "${file.name}" в базу ${selectedUploadKb}...`, 'success');
 
       try {
         const response = await fetch(`${API_URL}/upload-doc`, {
@@ -826,15 +878,61 @@
           throw new Error(data.detail || data.error || 'Ошибка загрузки документа');
         }
 
-        showStatus(
-          `Документ загружен. Тип: ${data.document_type}. Чанков добавлено: ${data.chunks_count}.`,
-          'success'
-        );
+        if (uploadEventSource) {
+          uploadEventSource.close();
+        }
+
+        uploadEventSource = new EventSource(`${API_URL}/upload-status/${data.upload_id}`);
+
+        uploadEventSource.onmessage = (event) => {
+          const progress = JSON.parse(event.data);
+
+          showUploadProgress(
+            progress.percentage || 0,
+            progress.status_text || 'Обработка документа',
+            progress.book_name || file.name,
+            progress.eta || ''
+          );
+
+          if (progress.error) {
+            showStatus(progress.error, 'error');
+            uploadEventSource.close();
+            selectedUploadBtn.classList.remove('loading');
+            selectedUploadBtn.disabled = false;
+            return;
+          }
+
+          if (progress.done) {
+            uploadEventSource.close();
+
+            const result = progress.result || {};
+            showStatus(
+              `Документ загружен. Тип: ${result.document_type || '—'}. Чанков добавлено: ${result.chunks_count || 0}.`,
+              'success'
+            );
+
+            selectedUploadBtn.classList.remove('loading');
+            selectedUploadBtn.disabled = false;
+            hideUploadProgress();
+          }
+        };
+
+        uploadEventSource.onerror = () => {
+          showStatus('Поток статуса загрузки прерван.', 'error');
+
+          if (uploadEventSource) {
+            uploadEventSource.close();
+          }
+
+          selectedUploadBtn.classList.remove('loading');
+          selectedUploadBtn.disabled = false;
+        };
+
       } catch (error) {
         showStatus(error.message, 'error');
-      } finally {
         selectedUploadBtn.classList.remove('loading');
         selectedUploadBtn.disabled = false;
+        hideUploadProgress(0);
       }
     });
 
@@ -887,6 +985,23 @@
     function hideStatus() {
       statusMessage.className = 'status';
       statusMessage.textContent = '';
+    }
+
+    function showUploadProgress(percent, statusText, bookName, eta) {
+      uploadProgress.classList.add('visible');
+
+      uploadProgressFill.style.width = `${percent}%`;
+      uploadProgressTitle.textContent = `${statusText}: ${bookName || ''}`;
+      uploadProgressMeta.textContent = `${percent}%${eta ? ' · ' + eta : ''}`;
+    }
+
+    function hideUploadProgress(delay = 1200) {
+      setTimeout(() => {
+        uploadProgress.classList.remove('visible');
+        uploadProgressFill.style.width = '0%';
+        uploadProgressTitle.textContent = 'Подготовка загрузки...';
+        uploadProgressMeta.textContent = '0%';
+      }, delay);
     }
 
     questionInput.addEventListener('input', () => {
