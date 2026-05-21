@@ -142,6 +142,43 @@ async def get_kbs():
             for kb_name, title in titles.items()
         ]
     }
+
+@app.get("/api/kbs/{kb_name}/books")
+async def get_kb_books(kb_name: str):
+    books = set()
+
+    # 1. Файлы, загруженные через интерфейс
+    uploads_dir = Path("data/uploads") / kb_name
+
+    if uploads_dir.exists() and uploads_dir.is_dir():
+        allowed_suffixes = {".pdf", ".djvu"}
+
+        for file in uploads_dir.iterdir():
+            if file.is_file() and file.suffix.lower() in allowed_suffixes:
+                books.add(file.name)
+
+    # 2. Старые книги из чанков базы знаний
+    chunks_path = Path("data/kb") / kb_name / "my_chunks.pkl"
+
+    if chunks_path.exists():
+        import pickle
+
+        with open(chunks_path, "rb") as f:
+            chunks = pickle.load(f)
+
+        for chunk in chunks:
+            if not isinstance(chunk, dict):
+                continue
+
+            metadata = chunk.get("metadata", {})
+            source = metadata.get("source")
+
+            if source:
+                books.add(source)
+
+    return {
+        "books": sorted(books)
+    }
     
 @app.on_event("startup")
 async def startup():
@@ -243,6 +280,17 @@ async def upload_doc(
         "filename": filename
     }
 
+@app.get("/api/kbs/{kb_name}/books")
+async def get_kb_books(kb_name: str):
+    upload_dir = Path("data/uploads") / kb_name
+    if not upload_dir.exists():
+        return {"books": []}
+    
+    # Собираем файлы с расширениями .pdf и .djvu
+    books = [f.name for f in upload_dir.iterdir() if f.is_file() and f.suffix.lower() in [".pdf", ".djvu"]]
+    # Сортируем по алфавиту
+    books.sort()
+    return {"books": books}
 
 @app.get("/api/upload-status/{upload_id}")
 async def upload_status(upload_id: str):
