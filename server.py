@@ -10,12 +10,64 @@ import json
 import time
 import uuid
 from fastapi.responses import StreamingResponse
+import re
 
 from rag_core import init_debate_apps, ask_debate_rag_direct, connect_kb, add_document_to_kb
 
 app = FastAPI(title="RAG Bot Backend")
 
 UPLOAD_JOBS = {}
+
+KB_TITLES_FILE = Path("data/kb/_kb_titles.json")
+
+DEFAULT_KB_TITLES = {
+    "default": "Оптика и светотехника",
+    "ovk": "ОВ и К",
+    "bess": "BESS",
+}
+
+
+def load_kb_titles():
+    KB_TITLES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    if not KB_TITLES_FILE.exists():
+        save_kb_titles(DEFAULT_KB_TITLES)
+        return DEFAULT_KB_TITLES.copy()
+
+    with open(KB_TITLES_FILE, "r", encoding="utf-8") as f:
+        titles = json.load(f)
+
+    for kb_name, title in DEFAULT_KB_TITLES.items():
+        titles.setdefault(kb_name, title)
+
+    save_kb_titles(titles)
+    return titles
+
+
+def save_kb_titles(titles: dict):
+    KB_TITLES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(KB_TITLES_FILE, "w", encoding="utf-8") as f:
+        json.dump(titles, f, ensure_ascii=False, indent=2)
+
+def slugify_kb_name(title: str) -> str:
+    translit_map = {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d",
+        "е": "e", "ё": "e", "ж": "zh", "з": "z", "и": "i",
+        "й": "y", "к": "k", "л": "l", "м": "m", "н": "n",
+        "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
+        "у": "u", "ф": "f", "х": "h", "ц": "ts", "ч": "ch",
+        "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "",
+        "э": "e", "ю": "yu", "я": "ya",
+    }
+
+    text = title.lower().strip()
+    text = "".join(translit_map.get(ch, ch) for ch in text)
+    text = re.sub(r"\s+", "_", text)
+    text = re.sub(r"[^a-z0-9_]", "", text)
+    text = re.sub(r"_+", "_", text).strip("_")
+
+    return text
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,16 +79,15 @@ app.add_middleware(
 class KBRequest(BaseModel):
     kb_name: str
 
+class CreateKBRequest(BaseModel):
+    title: str
+
 class AskRequest(BaseModel):
     question: str
 
 @app.post("/api/switch-kb")
 async def switch_kb(req: KBRequest):
-    titles = {
-        "default": "Оптика и светотехника",
-        "ovk": "ОВ и К",
-        "bess": "BESS",
-    }
+    titles = load_kb_titles()
 
     if req.kb_name not in titles:
         raise HTTPException(status_code=400, detail="Неизвестная база знаний")
@@ -47,6 +98,49 @@ async def switch_kb(req: KBRequest):
         "success": True,
         "active_kb": req.kb_name,
         "title": titles[req.kb_name],
+    }
+
+@app.post("/api/create-kb")
+async def create_kb_endpoint(req: CreateKBRequest):
+    title = (req.title or "").strip()
+
+    if not title:
+        raise HTTPException(status_code=400, detail="Название базы не может быть пустым")
+
+    titles = load_kb_titles()
+    kb_name = slugify_kb_name(title)
+
+    if not kb_name:
+        raise HTTPException(status_code=400, detail="Не удалось сформировать системное имя базы")
+
+    original_kb_name = kb_name
+    counter = 2
+
+    while kb_name in titles:
+        kb_name = f"{original_kb_name}_{counter}"
+        counter += 1
+
+    connect_kb(kb_name)
+
+    titles[kb_name] = title
+    save_kb_titles(titles)
+
+    return {
+        "success": True,
+        "kb_name": kb_name,
+        "title": title,
+    }
+
+@app.get("/api/kbs")
+async def get_kbs():
+    titles = load_kb_titles()
+
+    return {
+        "success": True,
+        "items": [
+            {"kb_name": kb_name, "title": title}
+            for kb_name, title in titles.items()
+        ]
     }
     
 @app.on_event("startup")

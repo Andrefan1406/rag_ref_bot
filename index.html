@@ -684,6 +684,26 @@
       display: inline-block;
       animation: spin 0.8s linear infinite;
     }
+
+    .create-kb-btn {
+      width: 100%;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      border: 1px dashed #4a4a4a;
+      background: #171717;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      transition: 0.18s ease;
+    }
+
+    .create-kb-btn:hover {
+      background: #2f2f2f;
+      color: var(--text-main);
+      border-color: #6a6a6a;
+    }
   </style>
 </head>
 
@@ -700,28 +720,17 @@
 
       <div class="sidebar-title">Базы знаний</div>
 
-      <div class="kb-list">
-        <div class="kb-row">
-          <button class="btn btn-secondary kb-btn active" data-kb="default" data-title="Оптика и светотехника">
-            Оптика и светотехника
-          </button>
-          <button class="kb-upload-btn" data-kb="default" title="Загрузить документ в базу">+</button>
-        </div>
-      
-        <div class="kb-row">
-          <button class="btn btn-secondary kb-btn" data-kb="ovk" data-title="ОВ и К">
-            ОВ и К
-          </button>
-          <button class="kb-upload-btn" data-kb="ovk" title="Загрузить документ в базу">+</button>
-        </div>
-      
-        <div class="kb-row">
-          <button class="btn btn-secondary kb-btn" data-kb="bess" data-title="BESS">
-            BESS
-          </button>
-          <button class="kb-upload-btn" data-kb="bess" title="Загрузить документ в базу">+</button>
-        </div>
+      <div class="kb-list" id="kbList">
+        <!-- Базы знаний будут подгружаться сюда автоматически через JavaScript -->
       </div>
+      
+      <button
+        id="createKbBtn"
+        class="create-kb-btn"
+        title="Создать новую базу знаний"
+      >
+        + Создать базу знаний
+      </button>
       
       <input
         id="docUploadInput"
@@ -821,25 +830,107 @@
 
     let uploadEventSource = null;
 
-    const kbButtons = document.querySelectorAll('.kb-btn');
-    const kbStatus = document.getElementById('kbStatus');
+    let currentKb = 'default';
+    let currentKbTitle = 'Оптика и светотехника';
 
-    const uploadButtons = document.querySelectorAll('.kb-upload-btn');
+    let kbItems = [
+      { kb_name: "default", title: "Оптика и светотехника" },
+      { kb_name: "ovk", title: "ОВ и К" },
+      { kb_name: "bess", title: "BESS" }
+    ];
+
+    const kbList = document.getElementById('kbList');
+    const createKbBtn = document.getElementById('createKbBtn');
+    const kbStatus = document.getElementById('kbStatus');
     const docUploadInput = document.getElementById('docUploadInput');
+
+    let kbButtons = [];
+    let uploadButtons = [];
 
     let selectedUploadKb = null;
     let selectedUploadBtn = null;
 
-    uploadButtons.forEach(btn => {
-      btn.addEventListener('click', (event) => {
-        event.stopPropagation();
+    function renderKbList() {
+      kbList.innerHTML = '';
 
-        selectedUploadKb = btn.dataset.kb;
-        selectedUploadBtn = btn;
+      kbItems.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'kb-row';
 
-        docUploadInput.value = '';
-        docUploadInput.click();
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-secondary kb-btn';
+        btn.dataset.kb = item.kb_name;
+        btn.dataset.title = item.title;
+        btn.textContent = item.title;
+
+        if (item.kb_name === currentKb) {
+          btn.classList.add('active');
+        }
+
+        const uploadBtn = document.createElement('button');
+        uploadBtn.className = 'kb-upload-btn';
+        uploadBtn.dataset.kb = item.kb_name;
+        uploadBtn.title = 'Загрузить документ';
+        uploadBtn.textContent = '+';
+
+        btn.addEventListener('click', () => switchKb(item.kb_name, item.title, btn));
+
+        uploadBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          selectedUploadKb = item.kb_name;
+          selectedUploadBtn = uploadBtn;
+          docUploadInput.value = '';
+          docUploadInput.click();
+        });
+
+        row.appendChild(btn);
+        row.appendChild(uploadBtn);
+        kbList.appendChild(row);
       });
+
+      kbButtons = document.querySelectorAll('.kb-btn');
+      uploadButtons = document.querySelectorAll('.kb-upload-btn');
+    }
+
+    createKbBtn.addEventListener('click', async () => {
+      const title = prompt('Введите отображаемое имя новой базы знаний');
+
+      if (!title || !title.trim()) {
+        return;
+      }
+
+      showStatus('Создаю новую базу знаний...', 'success');
+
+      try {
+        const response = await fetch(`${API_URL}/create-kb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ title: title.trim() })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка создания базы знаний');
+        }
+
+        kbItems.push({
+          kb_name: data.kb_name,
+          title: data.title
+        });
+
+        currentKb = data.kb_name;
+        currentKbTitle = data.title;
+
+        renderKbList();
+
+        kbStatus.textContent = `Активная база: ${data.title}`;
+        showStatus(`Создана новая база знаний: ${data.title}`, 'success');
+      } catch (error) {
+        showStatus(error.message, 'error');
+      }
     });
 
     docUploadInput.addEventListener('change', async () => {
@@ -1068,41 +1159,65 @@
       }
     }
 
-    kbButtons.forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const kbName = btn.dataset.kb;
-        const kbTitle = btn.dataset.title;
+    async function switchKb(kbName, kbTitle, btn) {
+      hideStatus();
+      showLoading('Переключаю базу знаний...');
 
-        hideStatus();
-        showLoading('Переключаю базу знаний...');
+      try {
+        const response = await fetch(`${API_URL}/switch-kb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ kb_name: kbName })
+        });
 
-        try {
-          const response = await fetch(`${API_URL}/switch-kb`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ kb_name: kbName })
-          });
+        const data = await response.json();
 
-          const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(data.detail || 'Ошибка переключения базы знаний');
-          }
-
-          kbButtons.forEach(button => button.classList.remove('active'));
-          btn.classList.add('active');
-
-          kbStatus.textContent = `Активная база: ${data.title || kbTitle}`;
-          showStatus(`База знаний переключена: ${data.title || kbTitle}`, 'success');
-        } catch (error) {
-          showStatus(error.message, 'error');
-        } finally {
-          hideLoading();
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка переключения базы знаний');
         }
-      });
-    });
+
+        currentKb = kbName;
+        currentKbTitle = data.title || kbTitle;
+
+        kbButtons.forEach(button => button.classList.remove('active'));
+        btn.classList.add('active');
+
+        kbStatus.textContent = `Активная база: ${currentKbTitle}`;
+        showStatus(`База знаний переключена: ${currentKbTitle}`, 'success');
+      } catch (error) {
+        showStatus(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    async function loadKbsFromServer() {
+      try {
+        const response = await fetch(`${API_URL}/kbs`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка загрузки списка баз');
+        }
+
+        kbItems = data.items || kbItems;
+
+        if (kbItems.length > 0) {
+          currentKb = kbItems[0].kb_name;
+          currentKbTitle = kbItems[0].title;
+        }
+
+        renderKbList();
+        kbStatus.textContent = `Активная база: ${currentKbTitle}`;
+      } catch (error) {
+        renderKbList();
+        showStatus(error.message, 'error');
+      }
+    }
+
+    loadKbsFromServer();
   </script>
 </body>
 </html>
