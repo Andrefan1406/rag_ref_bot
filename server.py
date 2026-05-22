@@ -147,34 +147,35 @@ async def get_kbs():
 async def get_kb_books(kb_name: str):
     books = set()
 
-    # 1. Файлы, загруженные через интерфейс
+    allowed_suffixes = {".pdf", ".djvu"}
+
+    # 1. Основной источник — файлы, загруженные через интерфейс
     uploads_dir = Path("data/uploads") / kb_name
 
     if uploads_dir.exists() and uploads_dir.is_dir():
-        allowed_suffixes = {".pdf", ".djvu"}
-
         for file in uploads_dir.iterdir():
             if file.is_file() and file.suffix.lower() in allowed_suffixes:
                 books.add(file.name)
 
-    # 2. Старые книги из чанков базы знаний
-    chunks_path = Path("data/kb") / kb_name / "my_chunks.pkl"
+    # 2. Старые книги из чанков подтягиваем ТОЛЬКО для базы default
+    if kb_name == "default":
+        chunks_path = Path("data/kb") / kb_name / "my_chunks.pkl"
 
-    if chunks_path.exists():
-        import pickle
+        if chunks_path.exists():
+            import pickle
 
-        with open(chunks_path, "rb") as f:
-            chunks = pickle.load(f)
+            with open(chunks_path, "rb") as f:
+                chunks = pickle.load(f)
 
-        for chunk in chunks:
-            if not isinstance(chunk, dict):
-                continue
+            for chunk in chunks:
+                if not isinstance(chunk, dict):
+                    continue
 
-            metadata = chunk.get("metadata", {})
-            source = metadata.get("source")
+                metadata = chunk.get("metadata", {})
+                source = metadata.get("source")
 
-            if source:
-                books.add(source)
+                if source:
+                    books.add(source)
 
     return {
         "books": sorted(books)
@@ -280,7 +281,7 @@ async def upload_doc(
         "filename": filename
     }
 
-@app.get("/api/kbs/{kb_name}/books")
+""" @app.get("/api/kbs/{kb_name}/books")
 async def get_kb_books(kb_name: str):
     upload_dir = Path("data/uploads") / kb_name
     if not upload_dir.exists():
@@ -326,14 +327,14 @@ async def upload_status(upload_id: str):
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         }
-    ) 
+    )  """
 
 # Старый endpoint оставлен как алиас, чтобы старые версии index.html не падали.
 @app.post("/api/start")
 async def start_alias(req: AskRequest):
     return await ask(req)
 
-@app.post("/api/upload-doc")
+""" @app.post("/api/upload-doc")
 async def upload_doc(
     kb_name: str = Form(...),
     file: UploadFile = File(...)
@@ -366,7 +367,7 @@ async def upload_doc(
         "success": True,
         "message": "Документ добавлен в базу знаний",
         "result": result
-    }    
+    }     """
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
