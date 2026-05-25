@@ -902,6 +902,34 @@
         margin-right: 0;
       }
     }
+
+    .book-name {
+      flex: 1;
+    }
+
+    .book-delete-btn {
+      display: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      border: 1px solid #4a4a4a;
+      background: #171717;
+      color: #ef4444;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .right-sidebar:hover .book-delete-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .book-delete-btn:hover {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: #ef4444;
+    }
   </style>
 </head>
 
@@ -1006,10 +1034,18 @@
       </section>
     </main>
     <aside id="right-sidebar" class="sidebar right-sidebar">
-      <div class="sidebar-title">Книги базы</div>
-
+      <div class="sidebar-title">Источники базы</div>
+    
+      <button
+        id="addBookBtn"
+        class="create-kb-btn"
+        title="Добавить источник в активную базу"
+      >
+        + Добавить источник
+      </button>
+    
       <div id="books-list" class="books-list">
-        <!-- Список книг будет рендериться через JavaScript -->
+        <!-- Список источников будет рендериться через JavaScript -->
       </div>
     </aside>
   </div>
@@ -1033,6 +1069,7 @@
     const uploadProgressTitle = document.getElementById('uploadProgressTitle');
     const uploadProgressMeta = document.getElementById('uploadProgressMeta');
     const booksList = document.getElementById('books-list');
+    const addBookBtn = document.getElementById('addBookBtn');
 
     let uploadEventSource = null;
 
@@ -1073,24 +1110,21 @@
           btn.classList.add('active');
         }
 
-        const uploadBtn = document.createElement('button');
-        uploadBtn.className = 'kb-upload-btn';
-        uploadBtn.dataset.kb = item.kb_name;
-        uploadBtn.title = 'Загрузить документ';
-        uploadBtn.textContent = '+';
+        const deleteKbBtn = document.createElement('button');
+        deleteKbBtn.className = 'kb-upload-btn';
+        deleteKbBtn.dataset.kb = item.kb_name;
+        deleteKbBtn.title = 'Удалить базу знаний';
+        deleteKbBtn.textContent = '−';
 
         btn.addEventListener('click', () => switchKb(item.kb_name, item.title, btn));
 
-        uploadBtn.addEventListener('click', (event) => {
+        deleteKbBtn.addEventListener('click', async (event) => {
           event.stopPropagation();
-          selectedUploadKb = item.kb_name;
-          selectedUploadBtn = uploadBtn;
-          docUploadInput.value = '';
-          docUploadInput.click();
+          await deleteKb(item.kb_name, item.title);
         });
 
         row.appendChild(btn);
-        row.appendChild(uploadBtn);
+        row.appendChild(deleteKbBtn);
         kbList.appendChild(row);
       });
 
@@ -1138,6 +1172,44 @@
         showStatus(error.message, 'error');
       }
     });
+
+    async function deleteKb(kbName, kbTitle) {
+      const ok = confirm(
+        `Удалить базу знаний "${kbTitle}" полностью?\n\nБудут удалены все источники, чанки и индекс.`
+      );
+
+      if (!ok) return;
+
+      showStatus(`Удаляю базу знаний "${kbTitle}".`, 'success');
+
+      try {
+        const response = await fetch(
+          `${API_URL}/kbs/${encodeURIComponent(kbName)}`,
+          { method: 'DELETE' }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка удаления базы знаний');
+        }
+
+        kbItems = kbItems.filter(item => item.kb_name !== kbName);
+
+        currentKb = data.next_kb;
+        currentKbTitle = data.next_title;
+
+        renderKbList();
+
+        kbStatus.textContent = `Активная база: ${currentKbTitle}`;
+        await fetchAndRenderBooks(currentKb);
+
+        showStatus(`База знаний "${kbTitle}" удалена.`, 'success');
+
+      } catch (error) {
+        showStatus(error.message, 'error');
+      }
+    }
 
     docUploadInput.addEventListener('change', async () => {
       const file = docUploadInput.files[0];
@@ -1203,7 +1275,7 @@
             } else {
               showStatus(`Документ "${file.name}" добавлен.`, 'success');
 
-              // Обновляем список книг справа
+              // Обновляем список источников справа
               await fetchAndRenderBooks(selectedUploadKb);
             }
 
@@ -1228,6 +1300,18 @@
         selectedUploadBtn.disabled = false;
         hideUploadProgress(0);
       }
+    });
+
+    addBookBtn.addEventListener('click', () => {
+      if (!currentKb) {
+        showStatus('Сначала выберите базу знаний.', 'error');
+        return;
+      }
+
+      selectedUploadKb = currentKb;
+      selectedUploadBtn = addBookBtn;
+      docUploadInput.value = '';
+      docUploadInput.click();
     });
 
     const welcome = document.querySelector('.welcome');
@@ -1303,7 +1387,7 @@
 
       booksList.innerHTML = `
         <div class="book-item">
-          Загружаю список книг...
+          Загружаю список источников...
         </div>
       `;
 
@@ -1312,7 +1396,7 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.detail || 'Ошибка загрузки списка книг');
+          throw new Error(data.detail || 'Ошибка загрузки списка источников');
         }
 
         const books = data.books || [];
@@ -1322,7 +1406,7 @@
         if (books.length === 0) {
           booksList.innerHTML = `
             <div class="book-empty">
-              В этой базе еще нет книг
+              В этой базе еще нет источников
             </div>
           `;
           return;
@@ -1334,7 +1418,15 @@
           item.innerHTML = `
             <span class="book-icon">📄</span>
             <span class="book-name"></span>
+            <button class="book-delete-btn" title="Удалить источник">−</button>
           `;
+
+          item.querySelector('.book-name').textContent = book;
+
+          item.querySelector('.book-delete-btn').addEventListener('click', async (event) => {
+            event.stopPropagation();
+            await deleteBook(book);
+          });
 
           item.querySelector('.book-name').textContent = book;
           booksList.appendChild(item);
@@ -1343,9 +1435,44 @@
       } catch (error) {
         booksList.innerHTML = `
           <div class="book-empty">
-            Не удалось загрузить список книг
+            Не удалось загрузить список источников
           </div>
         `;
+      }
+    }
+
+    async function deleteBook(bookName) {
+      if (!currentKb || !bookName) return;
+
+      const ok = confirm(`Удалить источник "${bookName}" из базы "${currentKbTitle}"?`);
+
+      if (!ok) return;
+
+      showStatus('Удаляю источник из базы знаний...', 'success');
+
+      try {
+        const response = await fetch(
+          `${API_URL}/kbs/${encodeURIComponent(currentKb)}/books/${encodeURIComponent(bookName)}`,
+          {
+            method: 'DELETE'
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка удаления источника');
+        }
+
+        await fetchAndRenderBooks(currentKb);
+
+        showStatus(
+          `Источник удален. Удалено чанков: ${data.removed_chunks}`,
+          'success'
+        );
+
+      } catch (error) {
+        showStatus(error.message, 'error');
       }
     }
 

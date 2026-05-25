@@ -12,7 +12,7 @@ import uuid
 from fastapi.responses import StreamingResponse
 import re
 
-from rag_core import init_debate_apps, ask_debate_rag_direct, connect_kb, add_document_to_kb
+from rag_core import init_debate_apps, ask_debate_rag_direct, connect_kb, add_document_to_kb, delete_book_from_kb
 
 app = FastAPI(title="RAG Bot Backend")
 
@@ -46,6 +46,18 @@ def save_kb_book(kb_name: str, book_name: str):
     if book_name not in books[kb_name]:
         books[kb_name].append(book_name)
         books[kb_name].sort()
+
+    with open(KB_BOOKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(books, f, ensure_ascii=False, indent=2)
+
+def delete_kb_book(kb_name: str, book_name: str):
+    books = load_kb_books()
+
+    if kb_name in books:
+        books[kb_name] = [
+            book for book in books[kb_name]
+            if book != book_name
+        ]
 
     with open(KB_BOOKS_FILE, "w", encoding="utf-8") as f:
         json.dump(books, f, ensure_ascii=False, indent=2)
@@ -193,6 +205,63 @@ async def get_kb_books(kb_name: str):
     return {
         "books": sorted(books)
     }
+
+@app.delete("/api/kbs/{kb_name}/books/{book_name}")
+async def delete_book(kb_name: str, book_name: str):
+    try:
+        result = delete_book_from_kb(kb_name, book_name)
+
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("message"))
+
+        delete_kb_book(kb_name, book_name)
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/kbs/{kb_name}")
+async def delete_kb_endpoint(kb_name: str):
+    titles = load_kb_titles()
+
+    if kb_name not in titles:
+        raise HTTPException(status_code=404, detail="База знаний не найдена")
+
+    if len(titles) <= 1:
+        raise HTTPException(status_code=400, detail="Нельзя удалить последнюю базу знаний")
+
+    deleted_title = titles.pop(kb_name)
+    save_kb_titles(titles)
+
+    books = load_kb_books()
+    books.pop(kb_name, None)
+
+    with open(KB_BOOKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(books, f, ensure_ascii=False, indent=2)
+
+    kb_dir = Path("data/kb") / kb_name
+    temp_dir = Path("data/temp") / kb_name
+    upload_dir = Path("data/uploads") / kb_name
+
+    shutil.rmtree(kb_dir, ignore_errors=True)
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    shutil.rmtree(upload_dir, ignore_errors=True)
+
+    next_kb = next(iter(titles.keys()))
+    connect_kb(next_kb)
+
+    return {
+        "success": True,
+        "deleted_kb": kb_name,
+        "deleted_title": deleted_title,
+        "next_kb": next_kb,
+        "next_title": titles[next_kb]
+    }
+
+
     
 @app.on_event("startup")
 async def startup():

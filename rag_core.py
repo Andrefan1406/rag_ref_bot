@@ -175,6 +175,61 @@ def save_active_kb():
 
     print(f"💾 Сохранена база: {kb_name}")
 
+def delete_book_from_kb(kb_name: str, book_name: str):
+    global GLOBAL_INDEX, GLOBAL_CHUNKS
+
+    connect_kb(kb_name)
+
+    before_count = len(GLOBAL_CHUNKS)
+
+    kept_chunks = []
+    removed_chunks = []
+
+    for chunk in GLOBAL_CHUNKS:
+        metadata = chunk.get("metadata", {}) if isinstance(chunk, dict) else {}
+        source = str(metadata.get("source", "")).strip()
+
+        if source == book_name:
+            removed_chunks.append(chunk)
+        else:
+            kept_chunks.append(chunk)
+
+    if not removed_chunks:
+        return {
+            "success": False,
+            "message": "Книга не найдена в чанках",
+            "kb_name": kb_name,
+            "book_name": book_name,
+            "removed_chunks": 0,
+            "remaining_chunks": before_count
+        }
+
+    GLOBAL_CHUNKS = kept_chunks
+
+    vectors = []
+
+    for chunk in GLOBAL_CHUNKS:
+        emb = chunk.get("embedding")
+
+        if emb is not None:
+            vectors.append(np.array(emb, dtype="float32"))
+
+    if vectors:
+        vectors = np.array(vectors, dtype="float32")
+        GLOBAL_INDEX = build_faiss_index(vectors)
+    else:
+        GLOBAL_INDEX = None
+
+    save_active_kb()
+
+    return {
+        "success": True,
+        "kb_name": kb_name,
+        "book_name": book_name,
+        "removed_chunks": len(removed_chunks),
+        "remaining_chunks": len(GLOBAL_CHUNKS)
+    }    
+
 def load_knowledge_base(index_path, chunks_path):
     log("Загружаю FAISS индекс...")
     index = faiss.read_index(index_path)
