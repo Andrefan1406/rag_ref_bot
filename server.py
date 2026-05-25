@@ -20,12 +20,35 @@ UPLOAD_JOBS = {}
 
 KB_TITLES_FILE = Path("data/kb/_kb_titles.json")
 
+KB_BOOKS_FILE = Path("data/kb/_kb_books.json")
+
 DEFAULT_KB_TITLES = {
     "default": "Оптика и светотехника",
     "ovk": "ОВ и К",
     "bess": "BESS",
 }
 
+def load_kb_books():
+    KB_BOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    if not KB_BOOKS_FILE.exists():
+        return {}
+
+    with open(KB_BOOKS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_kb_book(kb_name: str, book_name: str):
+    books = load_kb_books()
+
+    books.setdefault(kb_name, [])
+
+    if book_name not in books[kb_name]:
+        books[kb_name].append(book_name)
+        books[kb_name].sort()
+
+    with open(KB_BOOKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(books, f, ensure_ascii=False, indent=2)
 
 def load_kb_titles():
     KB_TITLES_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -145,19 +168,9 @@ async def get_kbs():
 
 @app.get("/api/kbs/{kb_name}/books")
 async def get_kb_books(kb_name: str):
-    books = set()
+    books_data = load_kb_books()
+    books = set(books_data.get(kb_name, []))
 
-    allowed_suffixes = {".pdf", ".djvu"}
-
-    # 1. Основной источник — файлы, загруженные через интерфейс
-    uploads_dir = Path("data/uploads") / kb_name
-
-    if uploads_dir.exists() and uploads_dir.is_dir():
-        for file in uploads_dir.iterdir():
-            if file.is_file() and file.suffix.lower() in allowed_suffixes:
-                books.add(file.name)
-
-    # 2. Старые книги из чанков подтягиваем ТОЛЬКО для базы default
     if kb_name == "default":
         chunks_path = Path("data/kb") / kb_name / "my_chunks.pkl"
 
@@ -216,11 +229,12 @@ async def upload_doc(
 
     upload_id = str(uuid.uuid4())
 
-    upload_dir = Path("data/uploads") / kb_name
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = Path("data/temp") / kb_name
+    temp_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = Path(filename).name
-    saved_path = upload_dir / safe_name
+    saved_path = temp_dir / safe_name
+    book_name = Path(filename).stem
 
     with open(saved_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -248,6 +262,9 @@ async def upload_doc(
                 push_progress
             )
 
+            save_kb_book(kb_name, book_name)
+            saved_path.unlink(missing_ok=True)
+
             UPLOAD_JOBS[upload_id]["done"] = True
             UPLOAD_JOBS[upload_id]["result"] = result
 
@@ -261,6 +278,8 @@ async def upload_doc(
             })
 
         except Exception as e:
+            saved_path.unlink(missing_ok=True)
+
             UPLOAD_JOBS[upload_id]["done"] = True
             UPLOAD_JOBS[upload_id]["error"] = str(e)
 
@@ -280,18 +299,6 @@ async def upload_doc(
         "upload_id": upload_id,
         "filename": filename
     }
-
-""" @app.get("/api/kbs/{kb_name}/books")
-async def get_kb_books(kb_name: str):
-    upload_dir = Path("data/uploads") / kb_name
-    if not upload_dir.exists():
-        return {"books": []}
-    
-    # Собираем файлы с расширениями .pdf и .djvu
-    books = [f.name for f in upload_dir.iterdir() if f.is_file() and f.suffix.lower() in [".pdf", ".djvu"]]
-    # Сортируем по алфавиту
-    books.sort()
-    return {"books": books}
 
 @app.get("/api/upload-status/{upload_id}")
 async def upload_status(upload_id: str):
@@ -327,47 +334,50 @@ async def upload_status(upload_id: str):
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         }
-    )  """
+    ) 
 
 # Старый endpoint оставлен как алиас, чтобы старые версии index.html не падали.
 @app.post("/api/start")
 async def start_alias(req: AskRequest):
     return await ask(req)
 
-""" @app.post("/api/upload-doc")
-async def upload_doc(
-    kb_name: str = Form(...),
-    file: UploadFile = File(...)
-):
-    filename = file.filename or ""
-    suffix = Path(filename).suffix.lower()
+@app.post("/api/migrate-books-from-chunks/{kb_name}")
+async def migrate_books_from_chunks(kb_name: str):
+    import pickle
 
-    if suffix not in [".pdf", ".djvu"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Поддерживаются только PDF и DJVU"
-        )
-
+    chunks_path = Path("data/kb") / kb_name / "my_chunks.pkl"
     upload_dir = Path("data/uploads") / kb_name
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    safe_name = Path(filename).name
-    saved_path = upload_dir / safe_name
+    if not chunks_path.exists():
+        raise HTTPException(status_code=404, detail="Файл чанков не найден")
 
-    with open(saved_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    with open(chunks_path, "rb") as f:
+        chunks = pickle.load(f)
 
-    result = add_document_to_kb(
-        file_path=str(saved_path),
-        kb_name=kb_name,
-        source_name=Path(safe_name).stem
-    )
+    books = set()
+
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+
+        metadata = chunk.get("metadata", {})
+        source = metadata.get("source")
+
+        if source:
+            books.add(str(source).strip())
+
+    books = sorted(books)
+
+    for book in books:
+        save_kb_book(kb_name, book)
 
     return {
         "success": True,
-        "message": "Документ добавлен в базу знаний",
-        "result": result
-    }     """
+        "kb_name": kb_name,
+        "count": len(books),
+        "books": books
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
