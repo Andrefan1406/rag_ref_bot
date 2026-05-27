@@ -1501,22 +1501,58 @@
       outputContent
         .querySelectorAll('#rag-source-chunks template[data-fragment-id]')
         .forEach(tpl => {
-          chunkMap[tpl.dataset.fragmentId] = tpl.content.textContent.trim();
+          const id = (tpl.dataset.fragmentId || '').trim();
+          if (id) {
+            chunkMap[id.toLowerCase()] = tpl.content.textContent.trim();
+          }
         });
 
-      const sourceElements = outputContent.querySelectorAll('tr, li, p');
+      const sourceElements = outputContent.querySelectorAll('tr, li, p, td, span');
 
       sourceElements.forEach(el => {
-        const text = el.textContent || '';
-        const match = text.match(/S\d+\.F\d+|Фрагмент\s+\d+/);
+        if (el.dataset.tooltipReady === '1') return;
 
-        if (!match) return;
+        const text = (el.textContent || '').trim();
 
-        const fragmentId = match[0];
-        const chunkText = chunkMap[fragmentId];
+        const matches = [
+          ...text.matchAll(/S\d+\.F\d+/gi),
+          ...text.matchAll(/Фрагмент\s*№?\s*\d+/gi),
+          ...text.matchAll(/ФРАГМЕНТ\s*№?\s*\d+/gi),
+          ...text.matchAll(/Fragment\s*№?\s*\d+/gi),
+          ...text.matchAll(/\[\s*S\d+\.F\d+\s*\]/gi),
+          ...text.matchAll(/\[\s*Фрагмент\s*№?\s*\d+\s*\]/gi),
+        ];
+
+        if (!matches.length) return;
+
+        let chunkText = null;
+
+        for (const m of matches) {
+          let key = m[0]
+            .replace(/[\[\]]/g, '')
+            .replace(/№/g, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+
+          chunkText = chunkMap[key];
+
+          if (!chunkText) {
+            const numMatch = key.match(/\d+/);
+            if (numMatch) {
+              chunkText =
+                chunkMap[`фрагмент ${numMatch[0]}`] ||
+                chunkMap[`fragment ${numMatch[0]}`] ||
+                chunkMap[numMatch[0]];
+            }
+          }
+
+          if (chunkText) break;
+        }
 
         if (!chunkText) return;
 
+        el.dataset.tooltipReady = '1';
         el.style.cursor = 'help';
 
         el.addEventListener('mouseenter', () => {

@@ -3149,16 +3149,23 @@ def ask_debate_rag_direct(question: str) -> str:
     hidden_chunks = ['<div id="rag-source-chunks" style="display:none">']
 
     for n, frag in enumerate(used_fragments, start=1):
-        fragment_id = html.escape(str(frag.get("fragment_id", "")))
+        real_id = html.escape(str(frag.get("fragment_id", "")))
         chunk_text = html.escape(str(frag.get("text", "")))
 
-        hidden_chunks.append(
-            f'<template data-fragment-id="{fragment_id}">{chunk_text}</template>'
-        )
+        aliases = [
+            real_id,                 # S1.F1
+            f"Фрагмент {n}",          # Фрагмент 1
+            f"ФРАГМЕНТ {n}",          # ФРАГМЕНТ 1
+            f"fragment {n}",          # fragment 1
+            f"Fragment {n}",          # Fragment 1
+            str(n),                  # 1
+        ]
 
-        hidden_chunks.append(
-            f'<template data-fragment-id="Фрагмент {n}">{chunk_text}</template>'
-        )
+        for alias in aliases:
+            if alias:
+                hidden_chunks.append(
+                    f'<template data-fragment-id="{alias}">{chunk_text}</template>'
+                )
 
     hidden_chunks.append('</div>')
 
