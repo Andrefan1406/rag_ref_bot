@@ -24,6 +24,7 @@ import pytesseract
 from pytesseract import Output
 import pypandoc
 from typing import Callable
+import html
 
 VERBOSE = True
 
@@ -1889,6 +1890,7 @@ class DebateState(TypedDict):
     hypothesis: str
     criticism: str
     evidence: str
+    used_fragments: List[str]
     # === УТОЧНЕНИЕ ===
     clarification_aspects: List[dict]
     selected_aspects: List[dict]
@@ -3135,11 +3137,32 @@ def ask_debate_rag_direct(question: str) -> str:
         "refined_hypothesis": "",
         "synthesized_answer": "",
         "practical_guide": "",
+        "used_fragments": [],
         "final_answer": ""
     }
 
     result = debate_app_direct.invoke(state)
-    return result.get("final_answer", "Ответ не сформирован.")
+
+    answer = result.get("final_answer", "Ответ не сформирован.")
+    used_fragments = result.get("used_fragments", [])
+
+    hidden_chunks = ['<div id="rag-source-chunks" style="display:none">']
+
+    for n, frag in enumerate(used_fragments, start=1):
+        fragment_id = html.escape(str(frag.get("fragment_id", "")))
+        chunk_text = html.escape(str(frag.get("text", "")))
+
+        hidden_chunks.append(
+            f'<template data-fragment-id="{fragment_id}">{chunk_text}</template>'
+        )
+
+        hidden_chunks.append(
+            f'<template data-fragment-id="Фрагмент {n}">{chunk_text}</template>'
+        )
+
+    hidden_chunks.append('</div>')
+
+    return answer + "\n\n" + "\n".join(hidden_chunks)
 
 def ask_debate_chatgpt(question: str, show_result: bool = True) -> str:
     log("Запуск debate ChatGPT mode (без уточнений)...")

@@ -300,19 +300,7 @@
       line-height: 1.75;
       padding: 0;
     }
-
-    .output-content::before {
-      content: "Ответ";
-      display: inline-flex;
-      margin-bottom: 12px;
-      padding: 5px 10px;
-      border-radius: 999px;
-      background: #2f2f2f;
-      color: var(--text-muted);
-      font-size: 12px;
-      border: 1px solid #3a3a3a;
-    }
-
+    
     .output-content h1,
     .output-content h2,
     .output-content h3 {
@@ -930,6 +918,125 @@
       background: rgba(239, 68, 68, 0.12);
       border-color: #ef4444;
     }
+
+    .confirm-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(6px);
+      z-index: 20000;
+    }
+
+    .confirm-modal.visible {
+      display: flex;
+    }
+
+    .confirm-card {
+      width: min(420px, calc(100% - 32px));
+      padding: 22px;
+      border-radius: 22px;
+      background: #171717;
+      border: 1px solid #2f2f2f;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+      color: var(--text-main);
+    }
+
+    .confirm-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background: rgba(239, 68, 68, 0.12);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 14px;
+    }
+
+    .confirm-card h3 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .confirm-card p {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .confirm-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .confirm-btn {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid #3a3a3a;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .confirm-btn.cancel {
+      background: #242424;
+      color: var(--text-main);
+    }
+
+    .confirm-btn.cancel:hover {
+      background: #303030;
+    }
+
+    .confirm-btn.danger {
+      background: #ef4444;
+      color: white;
+      border-color: #ef4444;
+    }
+
+    .confirm-btn.danger:hover {
+      background: #dc2626;
+    }
+
+    .message.bot {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .answer-label {
+      display: inline-flex;
+      margin-bottom: 8px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #2f2f2f;
+      color: var(--text-muted);
+      font-size: 12px;
+      border: 1px solid #3a3a3a;
+    }
+
+    .source-tooltip {
+      position: fixed;
+      max-width: 620px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding: 14px;
+      border-radius: 14px;
+      background: #171717;
+      border: 1px solid #3a3a3a;
+      color: #ececec;
+      font-size: 13px;
+      line-height: 1.55;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+      z-index: 30000;
+      display: none;
+      pointer-events: none;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 
@@ -987,17 +1094,17 @@
               <h2>Чем могу помочь?</h2>
               <p>Выберите базу знаний слева и задайте вопрос внизу.</p>
             </div>
-          </div>
-
-          <div id="loading" class="loading">
-            <div class="spinner"></div>
-            <span id="loadingText">Обработка запроса...</span>
-          </div>
+          </div>          
 
           <div id="outputSection" class="output-section">
             <div class="output-card">
               <div class="output-header">Результат</div>
-              <div id="outputContent" class="output-content"></div>
+              <div id="outputContent" class="output-content">
+                <div id="loading" class="loading">
+                  <div class="spinner"></div>
+                  <span id="loadingText">Обработка запроса...</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1093,6 +1200,36 @@
     let selectedUploadKb = null;
     let selectedUploadBtn = null;
 
+    function customConfirm({ title, text, okText = 'Удалить' }) {
+      return new Promise(resolve => {
+        const modal = document.getElementById('confirmModal');
+        const titleEl = document.getElementById('confirmTitle');
+        const textEl = document.getElementById('confirmText');
+        const okBtn = document.getElementById('confirmOkBtn');
+        const cancelBtn = document.getElementById('confirmCancelBtn');
+
+        titleEl.textContent = title;
+        textEl.textContent = text;
+        okBtn.textContent = okText;
+
+        modal.classList.add('visible');
+
+        function close(result) {
+          modal.classList.remove('visible');
+          okBtn.onclick = null;
+          cancelBtn.onclick = null;
+          resolve(result);
+        }
+
+        okBtn.onclick = () => close(true);
+        cancelBtn.onclick = () => close(false);
+
+        modal.onclick = event => {
+          if (event.target === modal) close(false);
+        };
+      });
+    }
+
     function renderKbList() {
       kbList.innerHTML = '';
 
@@ -1174,9 +1311,11 @@
     });
 
     async function deleteKb(kbName, kbTitle) {
-      const ok = confirm(
-        `Удалить базу знаний "${kbTitle}" полностью?\n\nБудут удалены все источники, чанки и индекс.`
-      );
+      const ok = await customConfirm({
+        title: 'Удалить базу знаний?',
+        text: `База "${kbTitle}" будет удалена полностью: источники, чанки и индекс.`,
+        okText: 'Удалить базу'
+      });
 
       if (!ok) return;
 
@@ -1328,6 +1467,13 @@
       const bubble = document.createElement('div');
       bubble.className = 'message-bubble';
 
+      if (role === 'bot') {
+        const label = document.createElement('div');
+        label.className = 'answer-label';
+        label.textContent = 'Ответ';
+        message.appendChild(label);
+      }
+
       if (isMarkdown) {
         bubble.innerHTML = marked.parse(content);
       } else {
@@ -1337,9 +1483,56 @@
       message.appendChild(bubble);
 
       outputSection.classList.add('visible');
-      outputContent.appendChild(message);
+      outputContent.insertBefore(message, loading);
+
+      if (role === 'bot') {
+        enableSourceChunkTooltips();
+      }
 
       chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+
+    function enableSourceChunkTooltips() {
+      const tooltip = document.getElementById('sourceTooltip');
+      if (!tooltip) return;
+
+      const chunkMap = {};
+
+      outputContent
+        .querySelectorAll('#rag-source-chunks template[data-fragment-id]')
+        .forEach(tpl => {
+          chunkMap[tpl.dataset.fragmentId] = tpl.content.textContent.trim();
+        });
+
+      const sourceElements = outputContent.querySelectorAll('tr, li, p');
+
+      sourceElements.forEach(el => {
+        const text = el.textContent || '';
+        const match = text.match(/S\d+\.F\d+|Фрагмент\s+\d+/);
+
+        if (!match) return;
+
+        const fragmentId = match[0];
+        const chunkText = chunkMap[fragmentId];
+
+        if (!chunkText) return;
+
+        el.style.cursor = 'help';
+
+        el.addEventListener('mouseenter', () => {
+          tooltip.textContent = chunkText;
+          tooltip.style.display = 'block';
+        });
+
+        el.addEventListener('mousemove', event => {
+          tooltip.style.left = event.clientX + 18 + 'px';
+          tooltip.style.top = event.clientY + 18 + 'px';
+        });
+
+        el.addEventListener('mouseleave', () => {
+          tooltip.style.display = 'none';
+        });
+      });
     }
 
     function showLoading(text = 'Обработка запроса...') {
@@ -1444,7 +1637,11 @@
     async function deleteBook(bookName) {
       if (!currentKb || !bookName) return;
 
-      const ok = confirm(`Удалить источник "${bookName}" из базы "${currentKbTitle}"?`);
+      const ok = await customConfirm({
+        title: 'Удалить источник?',
+        text: `Источник "${bookName}" будет удалён из базы "${currentKbTitle}".`,
+        okText: 'Удалить источник'
+      });
 
       if (!ok) return;
 
@@ -1604,5 +1801,19 @@
 
     loadKbsFromServer();
   </script>
+  <div id="confirmModal" class="confirm-modal">
+    <div class="confirm-card">
+      <div class="confirm-icon">−</div>
+
+      <h3 id="confirmTitle">Подтвердите действие</h3>
+      <p id="confirmText"></p>
+
+      <div class="confirm-actions">
+        <button id="confirmCancelBtn" class="confirm-btn cancel">Отмена</button>
+        <button id="confirmOkBtn" class="confirm-btn danger">Удалить</button>
+      </div>
+    </div>
+  </div>
+  <div id="sourceTooltip" class="source-tooltip"></div>
 </body>
 </html>
