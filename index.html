@@ -854,15 +854,7 @@
       flex: 0 0 auto;
       opacity: 0.85;
     }
-
-    /* .book-name {
-      min-width: 0;
-      flex: 1;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    } */
-
+   
     .book-name {
       display: -webkit-box;
       -webkit-line-clamp: 2;
@@ -1036,6 +1028,65 @@
       display: none;
       pointer-events: none;
       white-space: pre-wrap;
+    }
+
+    .hypothesis-card {
+      width: 100%;
+    }
+
+    .hypothesis-editor {
+      width: 100%;
+      min-height: 120px;
+      height: auto;
+      resize: none;
+      overflow: hidden;
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid var(--input-border);
+      background: #171717;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.6;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    .hypothesis-editor:focus {
+      border-color: #696969;
+    }
+
+    .hypothesis-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+      justify-content: flex-end;
+    }
+
+    .hypothesis-btn {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid #4a4a4a;
+      background: #2f2f2f;
+      color: var(--text-main);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    .hypothesis-btn:hover {
+      background: #3a3a3a;
+    }
+
+    .continue-btn {
+      background: #ececec;
+      color: #111;
+      border-color: #ececec;
+    }
+
+    .continue-btn:hover {
+      background: #fff;
     }
   </style>
 </head>
@@ -1483,13 +1534,142 @@
       message.appendChild(bubble);
 
       outputSection.classList.add('visible');
-      outputContent.insertBefore(message, loading);
+      outputContent.appendChild(message);
 
       if (role === 'bot') {
         enableSourceChunkTooltips();
       }
 
       chatScroll.scrollTop = chatScroll.scrollHeight;
+    } 
+
+    function autoResizeTextarea(textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = textarea.scrollHeight + 'px';
+    }
+
+    function addHypothesisCard(hypothesisText) {
+      if (welcome) {
+        welcome.classList.add('hidden');
+      }
+
+      const message = document.createElement('div');
+      message.className = 'message bot';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble hypothesis-card';
+
+      bubble.innerHTML = `
+        <div class="answer-label">Предварительная гипотеза</div>
+
+        <textarea class="hypothesis-editor">${hypothesisText}</textarea>
+
+        <div class="hypothesis-actions">
+          <button class="hypothesis-btn regenerate-btn">Предложить другой вариант</button>
+          <button class="hypothesis-btn continue-btn">Продолжить</button>
+        </div>
+      `;
+
+      const editor = bubble.querySelector('.hypothesis-editor');
+            setTimeout(() => autoResizeTextarea(editor), 0);
+
+      editor.addEventListener('input', () => {
+        autoResizeTextarea(editor);
+      });      
+
+      editor.addEventListener('input', () => {
+        autoResizeTextarea(editor);
+      });
+      const regenerateBtn = bubble.querySelector('.regenerate-btn');
+      const continueBtn = bubble.querySelector('.continue-btn');
+
+      regenerateBtn.addEventListener('click', async () => {
+        await regenerateHypothesis(editor);
+      });
+
+      continueBtn.addEventListener('click', async () => {
+        await continueWithHypothesis(editor.value, message);
+      });
+
+      message.appendChild(bubble);
+      outputContent.appendChild(message);
+      outputSection.classList.add('visible');
+      chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+
+    async function regenerateHypothesis(editor) {
+      if (!activeSessionId) return;
+
+      showLoading('Генерирую новую гипотезу...');
+
+      try {
+        const response = await fetch(`${API_URL}/hypothesis/regenerate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ session_id: activeSessionId })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка повторной генерации гипотезы');
+        }
+
+        editor.value = data.hypothesis || '';
+        autoResizeTextarea(editor);
+
+      } catch (error) {
+        showStatus(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+
+    async function continueWithHypothesis(hypothesis, hypothesisMessage) {
+      if (!activeSessionId) return;
+
+      hypothesis = hypothesis.trim();
+
+      if (!hypothesis) {
+        showStatus('Гипотеза не может быть пустой.', 'error');
+        return;
+      }
+
+      showLoading('Формирую полный ответ...');
+
+      try {
+        const response = await fetch(`${API_URL}/continue`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            session_id: activeSessionId,
+            hypothesis
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка формирования ответа');
+        }
+
+        addMessage('bot', data.answer || 'Ответ не сформирован.', true);
+
+        activeSessionId = null;
+
+        showStatus('Ответ готов.', 'success');
+
+      } catch (error) {
+        addMessage('bot', `Ошибка: ${error.message}`);
+        showStatus(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
     }
 
     function enableSourceChunkTooltips() {
@@ -1730,6 +1910,8 @@
 
     askBtn.addEventListener('click', askQuestion);
 
+    let activeSessionId = null;
+
     async function askQuestion() {
       const question = questionInput.value.trim();
 
@@ -1745,10 +1927,10 @@
       questionInput.value = '';
       charCount.textContent = '0';
 
-      showLoading('Ищу ответ в выбранной базе знаний...');
+      showLoading('Формирую предварительную гипотезу...');
 
       try {
-        const response = await fetch(`${API_URL}/ask`, {
+        const response = await fetch(`${API_URL}/hypothesis`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1759,16 +1941,19 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.detail || data.answer || 'Ошибка получения ответа');
+          throw new Error(data.detail || 'Ошибка формирования гипотезы');
         }
 
-        const answer = data.answer || 'Ответ не сформирован.';
-        addMessage('bot', answer, true);
-        showStatus('Ответ готов.', 'success');
+        activeSessionId = data.session_id;
+
+        addHypothesisCard(data.hypothesis || '');
+
+        showStatus('Проверьте гипотезу. Можно исправить вручную или сгенерировать заново.', 'success');
+
       } catch (error) {
         addMessage('bot', `Ошибка: ${error.message}`);
         showStatus(error.message, 'error');
-        } finally {
+      } finally {
         hideLoading();
       }
     }

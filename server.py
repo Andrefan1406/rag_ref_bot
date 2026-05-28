@@ -12,11 +12,22 @@ import uuid
 from fastapi.responses import StreamingResponse
 import re
 
-from rag_core import init_debate_apps, ask_debate_rag_direct, connect_kb, add_document_to_kb, delete_book_from_kb
-
+from rag_core import (
+    init_debate_apps,
+    ask_debate_rag_direct,
+    start_debate_rag,
+    continue_debate_rag,
+    build_hypothesis_node,
+    connect_kb,
+    add_document_to_kb,
+    delete_book_from_kb,
+    append_source_chunks_to_answer
+)
 app = FastAPI(title="RAG Bot Backend")
 
 UPLOAD_JOBS = {}
+
+CHAT_SESSIONS = {}
 
 KB_TITLES_FILE = Path("data/kb/_kb_titles.json")
 
@@ -119,6 +130,18 @@ class CreateKBRequest(BaseModel):
 
 class AskRequest(BaseModel):
     question: str
+
+class HypothesisRequest(BaseModel):
+    question: str
+
+
+class RegenerateHypothesisRequest(BaseModel):
+    session_id: str
+
+
+class ContinueRequest(BaseModel):
+    session_id: str
+    hypothesis: str    
 
 @app.post("/api/switch-kb")
 async def switch_kb(req: KBRequest):
@@ -279,6 +302,87 @@ async def ask(req: AskRequest):
         print(f"🟢 Вопрос: {question}")
         answer = ask_debate_rag_direct(question)
         return {"answer": answer or "Ответ не сформирован."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/api/hypothesis")
+async def create_hypothesis(req: HypothesisRequest):
+    question = (req.question or "").strip()
+
+    if not question:
+        raise HTTPException(status_code=400, detail="Вопрос пустой")
+
+    try:
+        state = start_debate_rag(question)
+
+        session_id = str(uuid.uuid4())
+        CHAT_SESSIONS[session_id] = state
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "hypothesis": state.get("hypothesis", "")
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hypothesis/regenerate")
+async def regenerate_hypothesis(req: RegenerateHypothesisRequest):
+    state = CHAT_SESSIONS.get(req.session_id)
+
+    if not state:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+
+    try:
+        result = build_hypothesis_node(state)
+        state.update(result)
+
+        CHAT_SESSIONS[req.session_id] = state
+
+        return {
+            "success": True,
+            "session_id": req.session_id,
+            "hypothesis": state.get("hypothesis", "")
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/continue")
+async def continue_answer(req: ContinueRequest):
+    state = CHAT_SESSIONS.get(req.session_id)
+
+    if not state:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+
+    hypothesis = (req.hypothesis or "").strip()
+
+    if not hypothesis:
+        raise HTTPException(status_code=400, detail="Гипотеза пустая")
+
+    try:
+        state["hypothesis"] = hypothesis
+        state["refined_hypothesis"] = hypothesis
+
+        result = continue_debate_rag(state)
+
+        CHAT_SESSIONS.pop(req.session_id, None)
+
+        answer = result.get("final_answer", "Ответ не сформирован.")
+
+        answer = append_source_chunks_to_answer(
+            answer,
+            result.get("used_fragments", [])
+        )
+
+        return {
+            "success": True,
+            "answer": answer
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     

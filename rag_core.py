@@ -231,6 +231,32 @@ def delete_book_from_kb(kb_name: str, book_name: str):
         "remaining_chunks": len(GLOBAL_CHUNKS)
     }    
 
+def append_source_chunks_to_answer(answer: str, used_fragments: list) -> str:
+    hidden_chunks = ['<div id="rag-source-chunks" style="display:none">']
+
+    for n, frag in enumerate(used_fragments or [], start=1):
+        real_id = html.escape(str(frag.get("fragment_id", "")))
+        chunk_text = html.escape(str(frag.get("text", "")))
+
+        aliases = [
+            real_id,
+            f"Фрагмент {n}",
+            f"ФРАГМЕНТ {n}",
+            f"fragment {n}",
+            f"Fragment {n}",
+            str(n),
+        ]
+
+        for alias in aliases:
+            if alias:
+                hidden_chunks.append(
+                    f'<template data-fragment-id="{alias}">{chunk_text}</template>'
+                )
+
+    hidden_chunks.append('</div>')
+
+    return answer + "\n\n" + "\n".join(hidden_chunks)
+
 def load_knowledge_base(index_path, chunks_path):
     log("Загружаю FAISS индекс...")
     index = faiss.read_index(index_path)
