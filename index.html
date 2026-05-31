@@ -150,7 +150,7 @@
     }
 
     .kb-status {
-      margin-top: 18px;
+      margin-top: 12px;
       padding: 12px 14px;
       border-radius: var(--radius-md);
       background: #151515;
@@ -158,6 +158,142 @@
       font-size: 13px;
       line-height: 1.5;
       border: 1px solid var(--border);
+    }
+
+
+    .sidebar-section {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      margin-bottom: 16px;
+    }
+
+    .sidebar-section.top {
+      flex: 0 0 auto;
+    }
+
+    .sidebar-section.middle {
+      flex: 1 1 42%;
+      min-height: 150px;
+    }
+
+    .sidebar-section.bottom {
+      flex: 1 1 32%;
+      min-height: 150px;
+      margin-bottom: 0;
+    }
+
+    .research-list,
+    .stage-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      padding-right: 4px;
+      min-height: 0;
+    }
+
+    .research-item,
+    .stage-item {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      text-align: left;
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.35;
+      cursor: pointer;
+      transition: 0.18s ease;
+    }
+
+    .research-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .research-item:hover,
+    .stage-item:hover {
+      background: var(--panel-hover);
+      color: var(--text-main);
+    }
+
+    .research-item.active,
+    .stage-item.active {
+      background: #2f2f2f;
+      color: var(--text-main);
+      border-color: #4a4a4a;
+    }
+
+    .research-meta {
+      display: block;
+      margin-top: 4px;
+      color: var(--text-soft);
+      font-size: 11px;
+    }
+
+    .research-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .research-delete-btn {
+      display: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      border: 1px solid #4a4a4a;
+      background: #171717;
+      color: #ef4444;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .research-item:hover .research-delete-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .research-delete-btn:hover {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: #ef4444;
+    }
+
+    .stage-item.done::before {
+      content: "✓ ";
+    }
+
+    .stage-item.active::before {
+      content: "● ";
+    }
+
+    .stage-item.pending::before {
+      content: "○ ";
+    }
+
+    .sidebar-small-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px dashed #4a4a4a;
+      background: #171717;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .sidebar-small-btn:hover {
+      background: #2f2f2f;
+      color: var(--text-main);
     }
 
     .main {
@@ -1102,29 +1238,46 @@
         </div>
       </div>
 
-      <div class="sidebar-title">Базы знаний</div>
+      <div class="sidebar-section top">
+        <div class="sidebar-title">Базы знаний</div>
 
-      <div class="kb-list" id="kbList">
-        <!-- Базы знаний будут подгружаться сюда автоматически через JavaScript -->
+        <div class="kb-list" id="kbList">
+          <!-- Базы знаний будут подгружаться сюда автоматически через JavaScript -->
+        </div>
+        
+        <button
+          id="createKbBtn"
+          class="create-kb-btn"
+          title="Создать новую базу знаний"
+        >
+          + Создать базу знаний
+        </button>
+        
+        <input
+          id="docUploadInput"
+          type="file"
+          accept=".pdf,.djvu"
+          style="display: none;"
+        />
+
+        <div id="kbStatus" class="kb-status">
+          Активная база: Оптика и светотехника
+        </div>
       </div>
-      
-      <button
-        id="createKbBtn"
-        class="create-kb-btn"
-        title="Создать новую базу знаний"
-      >
-        + Создать базу знаний
-      </button>
-      
-      <input
-        id="docUploadInput"
-        type="file"
-        accept=".pdf,.djvu"
-        style="display: none;"
-      />
 
-      <div id="kbStatus" class="kb-status">
-        Активная база: Оптика и светотехника
+      <div class="sidebar-section middle">
+        <div class="sidebar-title">Исследования</div>
+        <div id="researchList" class="research-list">
+          <button class="research-item">Исследований пока нет</button>
+        </div>
+        <button id="newResearchBtn" class="sidebar-small-btn">+ Новое исследование</button>
+      </div>
+
+      <div class="sidebar-section bottom">
+        <div class="sidebar-title">Этапы исследования</div>
+        <div id="stageList" class="stage-list">
+          <!-- Этапы выбранного исследования -->
+        </div>
       </div>
     </aside>
 
@@ -1149,12 +1302,12 @@
 
           <div id="outputSection" class="output-section">
             <div class="output-card">
-              <div class="output-header">Результат</div>
-              <div id="outputContent" class="output-content">
+              <div class="output-header">Результат</div>              
                 <div id="loading" class="loading">
                   <div class="spinner"></div>
                   <span id="loadingText">Обработка запроса...</span>
                 </div>
+                <div id="outputContent" class="output-content"></div>  
               </div>
             </div>
           </div>
@@ -1228,6 +1381,9 @@
     const uploadProgressMeta = document.getElementById('uploadProgressMeta');
     const booksList = document.getElementById('books-list');
     const addBookBtn = document.getElementById('addBookBtn');
+    const researchList = document.getElementById('researchList');
+    const stageList = document.getElementById('stageList');
+    const newResearchBtn = document.getElementById('newResearchBtn');
 
     let uploadEventSource = null;
 
@@ -1250,6 +1406,18 @@
 
     let selectedUploadKb = null;
     let selectedUploadBtn = null;
+
+    let researches = [];
+    let activeResearchId = null;
+
+    const RESEARCH_STAGES = [
+      { key: 'question', title: 'Вопрос' },
+      { key: 'sources', title: 'Источники' },
+      { key: 'hypothesis', title: 'Гипотеза' },
+      { key: 'plan', title: 'План' },
+      { key: 'analysis', title: 'Анализ' },
+      { key: 'final', title: 'Финальный ответ' }
+    ];
 
     function customConfirm({ title, text, okText = 'Удалить' }) {
       return new Promise(resolve => {
@@ -1279,6 +1447,280 @@
           if (event.target === modal) close(false);
         };
       });
+    }
+
+    function renderResearches() {
+      if (!researchList) return;
+
+      researchList.innerHTML = '';
+
+      if (!researches.length) {
+        const empty = document.createElement('div');
+        empty.className = 'research-item';
+        empty.textContent = 'Исследований пока нет';
+        researchList.appendChild(empty);
+        return;
+      }
+
+      researches.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'research-item';
+
+        if (item.id === activeResearchId) {
+          row.classList.add('active');
+        }
+
+        const statusText = item.status === 'completed' ? 'завершено' : 'в работе';
+
+        row.innerHTML = `
+          <div class="research-main">
+            <span>${item.title || 'Без названия'}</span>
+            <span class="research-meta">${statusText} · ${item.updated_at || ''}</span>
+          </div>
+
+          <button class="research-delete-btn" title="Удалить исследование">−</button>
+        `;
+
+        row.addEventListener('click', () => openResearch(item.id));
+
+        row.querySelector('.research-delete-btn').addEventListener('click', async (event) => {
+          event.stopPropagation();
+          await deleteResearch(item.id, item.title || 'Без названия');
+        });
+
+        researchList.appendChild(row);
+      });
+    }
+
+    async function deleteResearch(researchId, researchTitle) {
+      const ok = await customConfirm({
+        title: 'Удалить исследование?',
+        text: `Исследование "${researchTitle}" будет удалено из списка.`,
+        okText: 'Удалить'
+      });
+
+      if (!ok) return;
+
+      try {
+        const response = await fetch(`${API_URL}/researches/${encodeURIComponent(researchId)}`, {
+          method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка удаления исследования');
+        }
+
+        if (activeResearchId === researchId) {
+          activeResearchId = null;
+          activeSessionId = null;
+          outputContent.innerHTML = '';
+          outputSection.classList.remove('visible');
+
+          if (welcome) {
+            welcome.classList.remove('hidden');
+          }
+
+          renderStages({ current_stage: 'question', completed_stages: [] });
+
+          document.querySelector('.chat-title').textContent = 'Новое исследование';
+          document.querySelector('.chat-subtitle').textContent = 'Задайте вопрос по выбранной базе знаний';
+        }
+
+        await loadResearches();
+        showStatus('Исследование удалено.', 'success');
+
+      } catch (error) {
+        showStatus(error.message, 'error');
+      }
+    }
+
+    function renderStages(state = {}) {
+      if (!stageList) return;
+
+      const currentStage = state.current_stage || 'question';
+      const completed = new Set(state.completed_stages || []);
+
+      stageList.innerHTML = '';
+
+      RESEARCH_STAGES.forEach(stage => {
+        const btn = document.createElement('button');
+        btn.className = 'stage-item';
+
+        if (stage.key === currentStage) {
+          btn.classList.add('active');
+        } else if (completed.has(stage.key)) {
+          btn.classList.add('done');
+        } else {
+          btn.classList.add('pending');
+        }
+
+        btn.textContent = stage.title;
+
+        btn.addEventListener('click', () => {
+          openStage(stage.key);
+        });
+
+        stageList.appendChild(btn);        
+      });
+    }
+
+    async function openStage(stageKey) {
+      if (!activeResearchId) return;
+
+      try {
+        const response = await fetch(
+          `${API_URL}/researches/${encodeURIComponent(activeResearchId)}`
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка открытия этапа');
+        }
+
+        const research = data.research || {};
+        const state = data.state || {};
+
+        outputContent.innerHTML = '';
+        outputSection.classList.add('visible');
+        if (welcome) welcome.classList.add('hidden');
+
+        document.querySelector('.chat-title').textContent =
+          research.title || 'Исследование';
+
+        document.querySelector('.chat-subtitle').textContent =
+          `Этап: ${stageKey}`;
+
+        if (stageKey === 'question') {
+          if (state.question) {
+            addMessage('user', state.question);
+          } else {
+            addMessage('bot', 'Вопрос для этого исследования не найден.');
+          }
+
+          questionInput.placeholder = 'Введите уточнение к вопросу...';
+        }
+
+        else if (stageKey === 'sources') {
+          if (state.used_fragments && state.used_fragments.length) {
+            const sourcesText = state.used_fragments
+              .map((frag, index) => {
+                const source = frag.source || frag.metadata?.source || 'Источник не указан';
+                const page = frag.page || frag.metadata?.page || frag.pages || '';
+                const text = frag.text || '';
+
+                return `### Фрагмент ${index + 1}\n\n**Источник:** ${source}\n\n**Страница:** ${page}\n\n${text}`;
+              })
+              .join('\n\n---\n\n');
+
+            addMessage('bot', sourcesText, true);
+          } else {
+            addMessage('bot', 'Источники для этого этапа пока не сохранены.');
+          }
+
+          questionInput.placeholder = 'Введите уточнение к источникам...';
+        }
+
+        else if (stageKey === 'hypothesis') {
+          if (state.question) {
+            addMessage('user', state.question);
+          }
+
+          if (state.hypothesis) {
+            addHypothesisCard(state.hypothesis);
+          } else {
+            addMessage('bot', 'Гипотеза для этого исследования не найдена.');
+          }
+
+          questionInput.placeholder = 'Введите уточнение к гипотезе...';
+        }
+
+        else if (stageKey === 'final') {
+          if (state.final_answer) {
+            addMessage('bot', state.final_answer, true);
+          } else {
+            addMessage('bot', 'Финальный ответ пока не сформирован.');
+          }
+
+          questionInput.placeholder = 'Введите уточнение к финальному ответу...';
+        }
+
+        else {
+          addMessage('bot', `Этап "${stageKey}" пока не реализован.`);
+        }
+
+        renderStages({
+          current_stage: stageKey,
+          completed_stages: state.completed_stages || []
+        });
+
+      } catch (error) {
+        showStatus(error.message, 'error');
+      }
+    }
+
+    async function loadResearches() {
+      try {
+        const response = await fetch(`${API_URL}/researches`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка загрузки исследований');
+        }
+
+        researches = data.items || [];
+        renderResearches();
+      } catch (error) {
+        showStatus(error.message, 'error');
+      }
+    }
+
+    async function openResearch(researchId) {
+      hideStatus();
+
+      try {
+        const response = await fetch(`${API_URL}/researches/${researchId}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка открытия исследования');
+        }
+
+        activeResearchId = researchId;
+        activeSessionId = researchId;
+
+        const research = data.research || {};
+        const state = data.state || {};
+
+        outputContent.innerHTML = '';
+        outputSection.classList.add('visible');
+        if (welcome) welcome.classList.add('hidden');
+
+        if (state.question) {
+          addMessage('user', state.question);
+        }
+
+        if (state.hypothesis && state.current_stage !== 'final') {
+          addHypothesisCard(state.hypothesis);
+        }
+
+        if (state.final_answer) {
+          addMessage('bot', state.final_answer, true);
+        }
+
+        document.querySelector('.chat-title').textContent = research.title || 'Исследование';
+        document.querySelector('.chat-subtitle').textContent = `Этап: ${state.current_stage || 'question'}`;
+
+        questionInput.placeholder =
+          'Введите уточнение к текущему этапу исследования...';
+
+        renderResearches();
+        renderStages(state);
+      } catch (error) {
+        showStatus(error.message, 'error');
+      }
     }
 
     function renderKbList() {
@@ -1660,9 +2102,10 @@
 
         addMessage('bot', data.answer || 'Ответ не сформирован.', true);
 
-        activeSessionId = null;
+        renderStages({ current_stage: 'final', completed_stages: ['question', 'sources', 'hypothesis', 'final'] });
+        await loadResearches();
 
-        showStatus('Ответ готов.', 'success');
+        showStatus('Ответ готов. Исследование сохранено.', 'success');
 
       } catch (error) {
         addMessage('bot', `Ошибка: ${error.message}`);
@@ -1753,7 +2196,11 @@
 
     function showLoading(text = 'Обработка запроса...') {
       loadingText.textContent = text;
+
+      outputSection.classList.add('visible');
+
       loading.classList.add('visible');
+
       askBtn.disabled = true;
       kbButtons.forEach(btn => btn.disabled = true);
     }
@@ -1908,6 +2355,21 @@
       hideStatus();
     });
 
+    if (newResearchBtn) {
+      newResearchBtn.addEventListener('click', () => {
+        activeResearchId = null;
+        activeSessionId = null;
+        outputContent.innerHTML = '';
+        outputSection.classList.remove('visible');
+        if (welcome) welcome.classList.remove('hidden');
+        renderStages({ current_stage: 'question', completed_stages: [] });
+        document.querySelector('.chat-title').textContent = 'Новое исследование';
+        document.querySelector('.chat-subtitle').textContent = 'Задайте вопрос по выбранной базе знаний';
+
+        questionInput.placeholder = 'Введите новый вопрос для исследования...';
+      });
+    }
+
     askBtn.addEventListener('click', askQuestion);
 
     let activeSessionId = null;
@@ -1927,6 +2389,11 @@
       questionInput.value = '';
       charCount.textContent = '0';
 
+      if (activeResearchId && activeSessionId) {
+        await sendClarificationToCurrentStage(question);
+        return;
+      }
+
       showLoading('Формирую предварительную гипотезу...');
 
       try {
@@ -1935,7 +2402,7 @@
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ question })
+          body: JSON.stringify({ question, kb_name: currentKb })
         });
 
         const data = await response.json();
@@ -1945,10 +2412,57 @@
         }
 
         activeSessionId = data.session_id;
+        activeResearchId = data.session_id;
+
+        await loadResearches();
+        renderStages({ current_stage: 'hypothesis', completed_stages: ['question', 'sources', 'hypothesis'] });
 
         addHypothesisCard(data.hypothesis || '');
 
         showStatus('Проверьте гипотезу. Можно исправить вручную или сгенерировать заново.', 'success');
+
+      } catch (error) {
+        addMessage('bot', `Ошибка: ${error.message}`);
+        showStatus(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    async function sendClarificationToCurrentStage(commentText) {
+      showLoading('Применяю уточнение к гипотезе...');
+
+      try {
+        const response = await fetch(`${API_URL}/hypothesis/apply-comment`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            session_id: activeSessionId,
+            comment: commentText
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка применения уточнения');
+        }
+
+        outputContent.innerHTML = '';
+
+        addMessage('user', commentText);
+        addHypothesisCard(data.hypothesis || '');
+
+        renderStages({
+          current_stage: 'hypothesis',
+          completed_stages: ['question', 'sources', 'hypothesis']
+        });
+
+        await loadResearches();
+
+        showStatus('Гипотеза обновлена с учетом уточнения.', 'success');
 
       } catch (error) {
         addMessage('bot', `Ошибка: ${error.message}`);
@@ -2013,6 +2527,8 @@
         kbStatus.textContent = `Активная база: ${currentKbTitle}`;
 
         await fetchAndRenderBooks(currentKb);
+        await loadResearches();
+        renderStages({ current_stage: 'question', completed_stages: [] });
 
       } catch (error) {
         renderKbList();

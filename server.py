@@ -2,6 +2,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional, Any
 import uvicorn
 import shutil
 from pathlib import Path
@@ -32,6 +33,92 @@ CHAT_SESSIONS = {}
 KB_TITLES_FILE = Path("data/kb/_kb_titles.json")
 
 KB_BOOKS_FILE = Path("data/kb/_kb_books.json")
+
+RESEARCHES_FILE = Path("data/researches.json")
+RESEARCH_STATES_DIR = Path("data/research_states")
+
+
+
+def now_ts():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def make_research_title(question: str) -> str:
+    title = re.sub(r"\s+", " ", (question or "").strip())
+    if not title:
+        return "Новое исследование"
+    return title[:70] + ("..." if len(title) > 70 else "")
+
+
+def load_researches():
+    RESEARCHES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    if not RESEARCHES_FILE.exists():
+        return []
+
+    with open(RESEARCHES_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_researches(items: list):
+    RESEARCHES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(RESEARCHES_FILE, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+def get_research_state_path(research_id: str) -> Path:
+    RESEARCH_STATES_DIR.mkdir(parents=True, exist_ok=True)
+    return RESEARCH_STATES_DIR / f"{research_id}.json"
+
+
+def save_research_state(research_id: str, state: dict):
+    state_path = get_research_state_path(research_id)
+    with open(state_path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+
+
+def load_research_state(research_id: str):
+    state_path = get_research_state_path(research_id)
+    if not state_path.exists():
+        return None
+
+    with open(state_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def upsert_research_meta(research_id: str, **kwargs):
+    items = load_researches()
+    found = None
+
+    for item in items:
+        if item.get("id") == research_id:
+            found = item
+            break
+
+    if found is None:
+        found = {"id": research_id, "created_at": now_ts()}
+        items.insert(0, found)
+
+    found.update(kwargs)
+    found["updated_at"] = now_ts()
+
+    save_researches(items)
+    return found
+
+
+def get_session_state_or_404(session_id: str):
+    state = CHAT_SESSIONS.get(session_id)
+
+    if state is None:
+        state = load_research_state(session_id)
+        if state is not None:
+            CHAT_SESSIONS[session_id] = state
+
+    if state is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+
+    return state
 
 DEFAULT_KB_TITLES = {
     "default": "Оптика и светотехника",
@@ -133,6 +220,7 @@ class AskRequest(BaseModel):
 
 class HypothesisRequest(BaseModel):
     question: str
+    kb_name: Optional[str] = None
 
 
 class RegenerateHypothesisRequest(BaseModel):
@@ -142,6 +230,123 @@ class RegenerateHypothesisRequest(BaseModel):
 class ContinueRequest(BaseModel):
     session_id: str
     hypothesis: str    
+
+class ResearchUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+    current_stage: Optional[str] = None
+    state: Optional[dict[str, Any]] = None
+
+class ApplyClarificationRequest(BaseModel):
+    session_id: str
+    comment: str
+
+@app.get("/api/researches")
+async def get_researches():
+    return {
+        "success": True,
+        "items": load_researches()
+    }
+
+
+@app.get("/api/researches/{research_id}")
+async def get_research(research_id: str):
+    items = load_researches()
+    meta = next((item for item in items if item.get("id") == research_id), None)
+
+    if not meta:
+        raise HTTPException(status_code=404, detail="Исследование не найдено")
+
+    state = load_research_state(research_id) or {}
+    CHAT_SESSIONS[research_id] = state
+
+    return {
+        "success": True,
+        "research": meta,
+        "state": state
+    }
+
+
+@app.post("/api/researches")
+async def create_research(req: HypothesisRequest):
+    question = (req.question or "").strip()
+
+    if not question:
+        raise HTTPException(status_code=400, detail="Вопрос пустой")
+
+    research_id = str(uuid.uuid4())
+    kb_name = req.kb_name or "default"
+    title = make_research_title(question)
+
+    state = {
+        "id": research_id,
+        "question": question,
+        "kb_name": kb_name,
+        "current_stage": "question",
+        "completed_stages": ["question"],
+        "status": "draft",
+        "messages": [
+            {"role": "user", "stage": "question", "content": question, "created_at": now_ts()}
+        ]
+    }
+
+    save_research_state(research_id, state)
+    upsert_research_meta(
+        research_id,
+        title=title,
+        kb_name=kb_name,
+        question=question,
+        current_stage="question",
+        status="draft"
+    )
+
+    return {
+        "success": True,
+        "research_id": research_id,
+        "research": upsert_research_meta(research_id),
+        "state": state
+    }
+
+
+@app.post("/api/researches/{research_id}/save")
+async def save_research(research_id: str, req: ResearchUpdateRequest):
+    state = load_research_state(research_id) or {}
+
+    if req.state:
+        state.update(req.state)
+
+    if req.current_stage:
+        state["current_stage"] = req.current_stage
+
+    if req.status:
+        state["status"] = req.status
+
+    save_research_state(research_id, state)
+
+    meta_updates = {}
+    if req.title is not None:
+        meta_updates["title"] = req.title
+    if req.current_stage is not None:
+        meta_updates["current_stage"] = req.current_stage
+    if req.status is not None:
+        meta_updates["status"] = req.status
+
+    meta = upsert_research_meta(research_id, **meta_updates)
+
+    return {"success": True, "research": meta, "state": state}
+
+
+@app.delete("/api/researches/{research_id}")
+async def delete_research(research_id: str):
+    items = [item for item in load_researches() if item.get("id") != research_id]
+    save_researches(items)
+
+    state_path = get_research_state_path(research_id)
+    state_path.unlink(missing_ok=True)
+    CHAT_SESSIONS.pop(research_id, None)
+
+    return {"success": True}
+
 
 @app.post("/api/switch-kb")
 async def switch_kb(req: KBRequest):
@@ -313,10 +518,30 @@ async def create_hypothesis(req: HypothesisRequest):
         raise HTTPException(status_code=400, detail="Вопрос пустой")
 
     try:
-        state = start_debate_rag(question)
-
+        kb_name = req.kb_name or "default"
         session_id = str(uuid.uuid4())
+
+        state = start_debate_rag(question)
+        state["id"] = session_id
+        state["kb_name"] = kb_name
+        state["current_stage"] = "hypothesis"
+        state["completed_stages"] = ["question", "sources", "hypothesis"]
+        state["status"] = "in_progress"
+        state["messages"] = [
+            {"role": "user", "stage": "question", "content": question, "created_at": now_ts()},
+            {"role": "assistant", "stage": "hypothesis", "content": state.get("hypothesis", ""), "created_at": now_ts()}
+        ]
+
         CHAT_SESSIONS[session_id] = state
+        save_research_state(session_id, state)
+        upsert_research_meta(
+            session_id,
+            title=make_research_title(question),
+            kb_name=kb_name,
+            question=question,
+            current_stage="hypothesis",
+            status="in_progress"
+        )
 
         return {
             "success": True,
@@ -330,16 +555,17 @@ async def create_hypothesis(req: HypothesisRequest):
 
 @app.post("/api/hypothesis/regenerate")
 async def regenerate_hypothesis(req: RegenerateHypothesisRequest):
-    state = CHAT_SESSIONS.get(req.session_id)
-
-    if not state:
-        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    state = get_session_state_or_404(req.session_id)
 
     try:
         result = build_hypothesis_node(state)
         state.update(result)
 
         CHAT_SESSIONS[req.session_id] = state
+        state["current_stage"] = "hypothesis"
+        state["status"] = "in_progress"
+        save_research_state(req.session_id, state)
+        upsert_research_meta(req.session_id, current_stage="hypothesis", status="in_progress")
 
         return {
             "success": True,
@@ -350,13 +576,67 @@ async def regenerate_hypothesis(req: RegenerateHypothesisRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/hypothesis/apply-comment")
+async def apply_hypothesis_comment(req: ApplyClarificationRequest):
+    state = get_session_state_or_404(req.session_id)
+
+    comment = (req.comment or "").strip()
+
+    if not comment:
+        raise HTTPException(status_code=400, detail="Комментарий пустой")
+
+    old_hypothesis = state.get("hypothesis", "")
+
+    prompt = f"""
+У пользователя есть предварительная гипотеза:
+
+{old_hypothesis}
+
+Пользователь дал уточнение:
+
+{comment}
+
+Перепиши гипотезу с учетом уточнения пользователя.
+Сохрани инженерный стиль, не добавляй неподтвержденные факты.
+Верни только обновленную гипотезу.
+"""
+
+    try:
+        from rag_core import ollama_chat
+
+        new_hypothesis = ollama_chat(
+            system="Ты помогаешь уточнять исследовательскую гипотезу.",
+            user=prompt
+        )
+
+        state["hypothesis"] = new_hypothesis
+        state["refined_hypothesis"] = new_hypothesis
+        state["last_user_comment"] = comment
+        state["current_stage"] = "hypothesis"
+        state["completed_stages"] = ["question", "sources", "hypothesis"]
+
+        save_research_state(req.session_id, state)
+
+        upsert_research_meta(
+            req.session_id,
+            current_stage="hypothesis",
+            status="draft"
+        )
+
+        CHAT_SESSIONS[req.session_id] = state
+
+        return {
+            "success": True,
+            "hypothesis": new_hypothesis,
+            "state": state
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/continue")
 async def continue_answer(req: ContinueRequest):
-    state = CHAT_SESSIONS.get(req.session_id)
-
-    if not state:
-        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    state = get_session_state_or_404(req.session_id)
 
     hypothesis = (req.hypothesis or "").strip()
 
@@ -369,14 +649,27 @@ async def continue_answer(req: ContinueRequest):
 
         result = continue_debate_rag(state)
 
-        CHAT_SESSIONS.pop(req.session_id, None)
-
         answer = result.get("final_answer", "Ответ не сформирован.")
 
         answer = append_source_chunks_to_answer(
             answer,
             result.get("used_fragments", [])
         )
+
+        result["id"] = req.session_id
+        result["kb_name"] = state.get("kb_name", "default")
+        result["current_stage"] = "final"
+        result["completed_stages"] = list(dict.fromkeys(
+            (state.get("completed_stages") or []) + ["final"]
+        ))
+        result["status"] = "completed"
+        result["messages"] = (state.get("messages") or []) + [
+            {"role": "assistant", "stage": "final", "content": answer, "created_at": now_ts()}
+        ]
+
+        CHAT_SESSIONS[req.session_id] = result
+        save_research_state(req.session_id, result)
+        upsert_research_meta(req.session_id, current_stage="final", status="completed")
 
         return {
             "success": True,
