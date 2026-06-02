@@ -364,12 +364,7 @@
     .chat-scroll::-webkit-scrollbar-thumb {
       background: #3a3a3a;
       border-radius: 999px;
-    }
-
-    .chat-wrap {
-      width: min(900px, 100%);
-      margin: 0 auto;
-    }
+    }   
 
     .welcome {
       min-height: 42vh;
@@ -572,11 +567,14 @@
       bottom: 0;
       padding: 22px 24px 28px;
       background: linear-gradient(to top, #212121 76%, rgba(33, 33, 33, 0));
-    }
+    }    
 
+    .chat-wrap,
     .composer-inner {
-      width: min(900px, 100%);
-      margin: 0 auto;
+      width: min(900px, calc(100% - 48px));
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .input-container {
@@ -748,9 +746,11 @@
     }
 
     .message.bot {
-      justify-content: flex-start;
+      flex-direction: column;
+      align-items: stretch;
+      width: 100%;
     }
-
+    
     .message-bubble {
       max-width: 78%;
       padding: 14px 16px;
@@ -768,6 +768,12 @@
     .message.bot .message-bubble {
       background: transparent;
       color: #ececec;
+      width: 100%;
+      max-width: 100%;
+    }
+
+    .hypothesis-card {
+      width: 100%;
       max-width: 100%;
     }
 
@@ -1131,12 +1137,7 @@
     .confirm-btn.danger:hover {
       background: #dc2626;
     }
-
-    .message.bot {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-
+    
     .answer-label {
       display: inline-flex;
       margin-bottom: 8px;
@@ -1165,11 +1166,7 @@
       display: none;
       pointer-events: none;
       white-space: pre-wrap;
-    }
-
-    .hypothesis-card {
-      width: 100%;
-    }
+    }   
 
     .hypothesis-editor {
       width: 100%;
@@ -1455,15 +1452,19 @@
 
       researchList.innerHTML = '';
 
-      if (!researches.length) {
+      const visibleResearches = researches.filter(item => {
+        return (item.kb_name || 'default') === currentKb;
+      });
+
+      if (!visibleResearches.length) {
         const empty = document.createElement('div');
         empty.className = 'research-item';
-        empty.textContent = 'Исследований пока нет';
+        empty.textContent = 'Исследований по этой базе пока нет';
         researchList.appendChild(empty);
         return;
       }
 
-      researches.forEach(item => {
+      visibleResearches.forEach(item => {
         const row = document.createElement('div');
         row.className = 'research-item';
 
@@ -2475,7 +2476,7 @@
 
     async function switchKb(kbName, kbTitle, btn) {
       hideStatus();
-      showLoading('Переключаю базу знаний...');
+      showLoading('Переключаю базу знаний.');
 
       try {
         const response = await fetch(`${API_URL}/switch-kb`, {
@@ -2499,7 +2500,12 @@
         btn.classList.add('active');
 
         kbStatus.textContent = `Активная база: ${currentKbTitle}`;
+
         await fetchAndRenderBooks(currentKb);
+
+        // ВАЖНО: после смены базы заново рисуем список исследований
+        renderResearches();
+
         showStatus(`База знаний переключена: ${currentKbTitle}`, 'success');
       } catch (error) {
         showStatus(error.message, 'error');
