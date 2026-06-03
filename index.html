@@ -351,6 +351,7 @@
       min-height: 0;
       overflow-y: auto;
       padding: 32px 24px 180px;
+      scrollbar-gutter: stable;
     }
 
     .chat-scroll::-webkit-scrollbar {
@@ -485,6 +486,7 @@
       margin: 16px 0;
       overflow: hidden;
       border-radius: var(--radius-md);
+      table-layout: fixed;
     }
 
     .output-content th,
@@ -492,6 +494,7 @@
       padding: 10px 12px;
       border: 1px solid #3a3a3a;
       text-align: left;
+      overflow-wrap: anywhere;
     }
 
     .output-content th {
@@ -571,7 +574,7 @@
 
     .chat-wrap,
     .composer-inner {
-      width: min(900px, calc(100% - 48px));
+      width: min(900px, 100%);
       max-width: 900px;
       margin-left: auto;
       margin-right: auto;
@@ -763,6 +766,7 @@
       background: #303030;
       color: #ececec;
       border-bottom-right-radius: 6px;
+      padding: 14px 16px;
     }
 
     .message.bot .message-bubble {
@@ -770,6 +774,7 @@
       color: #ececec;
       width: 100%;
       max-width: 100%;
+      padding: 0;
     }
 
     .hypothesis-card {
