@@ -398,6 +398,20 @@
       font-size: 14px;
     }
 
+    .hypothesis-loading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+      padding: 12px 0;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .hypothesis-loading.hidden {
+      display: none;
+    }
+
     .loading.visible {
       display: flex;
     }
@@ -2017,6 +2031,10 @@
           <button class="hypothesis-btn regenerate-btn">Предложить другой вариант</button>
           <button class="hypothesis-btn continue-btn">Продолжить</button>
         </div>
+        <div id="hypothesisLoading" class="hypothesis-loading hidden">
+          <div class="spinner"></div>
+          <span>Формирую ответ...</span>
+        </div>
       `;
 
       const editor = bubble.querySelector('.hypothesis-editor');
@@ -2203,19 +2221,59 @@
 
     function showLoading(text = 'Обработка запроса...') {
       loadingText.textContent = text;
-
       outputSection.classList.add('visible');
 
-      loading.classList.add('visible');
+      const hypothesisLoading = document.getElementById('hypothesisLoading');
+
+      if (hypothesisLoading) {
+        hypothesisLoading.classList.remove('hidden');
+      } else {
+        loading.classList.add('visible');
+      }
 
       askBtn.disabled = true;
       kbButtons.forEach(btn => btn.disabled = true);
     }
 
     function hideLoading() {
+      const hypothesisLoading = document.getElementById('hypothesisLoading');
+
+      if (hypothesisLoading) {
+        hypothesisLoading.classList.add('hidden');
+      }
+
       loading.classList.remove('visible');
+
       askBtn.disabled = false;
       kbButtons.forEach(btn => btn.disabled = false);
+    }
+
+    function addInlineLoading(text = 'Формирую ответ...') {
+      const message = document.createElement('div');
+      message.id = 'inlineLoading';
+      message.className = 'message bot';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble';
+
+      bubble.innerHTML = `
+        <div class="hypothesis-loading">
+          <div class="spinner"></div>
+          <span>${text}</span>
+        </div>
+      `;
+
+      message.appendChild(bubble);
+      outputContent.appendChild(message);
+      outputSection.classList.add('visible');
+      chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+
+    function removeInlineLoading() {
+      const inlineLoading = document.getElementById('inlineLoading');
+      if (inlineLoading) {
+        inlineLoading.remove();
+      }
     }
 
     function showStatus(message, type = 'success') {
@@ -2401,7 +2459,9 @@
         return;
       }
 
-      showLoading('Формирую предварительную гипотезу...');
+      addInlineLoading('Формирую предварительную гипотезу...');
+      askBtn.disabled = true;
+      kbButtons.forEach(btn => btn.disabled = true);
 
       try {
         const response = await fetch(`${API_URL}/hypothesis`, {
@@ -2424,6 +2484,7 @@
         await loadResearches();
         renderStages({ current_stage: 'hypothesis', completed_stages: ['question', 'sources', 'hypothesis'] });
 
+        removeInlineLoading();
         addHypothesisCard(data.hypothesis || '');
 
         showStatus('Проверьте гипотезу. Можно исправить вручную или сгенерировать заново.', 'success');
@@ -2432,7 +2493,9 @@
         addMessage('bot', `Ошибка: ${error.message}`);
         showStatus(error.message, 'error');
       } finally {
-        hideLoading();
+        removeInlineLoading();
+        askBtn.disabled = false;
+        kbButtons.forEach(btn => btn.disabled = false);
       }
     }
 
