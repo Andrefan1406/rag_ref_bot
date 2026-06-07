@@ -1668,6 +1668,26 @@
           questionInput.placeholder = 'Введите уточнение к финальному ответу...';
         }
 
+        else if (stageKey === 'plan') {
+          if (state.plan) {
+            addMessage('bot', state.plan, true);
+          } else {
+            addMessage('bot', 'План исследования пока не сформирован.');
+          }
+
+          questionInput.placeholder = 'Введите уточнение к плану исследования...';
+        }
+
+        else if (stageKey === 'analysis') {
+          if (state.analysis) {
+            addMessage('bot', state.analysis, true);
+          } else {
+            addMessage('bot', 'Анализ пока не выполнен.');
+          }
+
+          questionInput.placeholder = 'Введите уточнение к анализу...';
+        }
+        
         else {
           addMessage('bot', `Этап "${stageKey}" пока не реализован.`);
         }
@@ -2105,10 +2125,10 @@
         return;
       }
 
-      showLoading('Формирую полный ответ...');
+      showLoading('Формирую план исследования...');
 
       try {
-        const response = await fetch(`${API_URL}/continue`, {
+        const response = await fetch(`${API_URL}/plan`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -2122,15 +2142,20 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.detail || 'Ошибка формирования ответа');
+          throw new Error(data.detail || 'Ошибка формирования плана');
         }
 
-        addMessage('bot', data.answer || 'Ответ не сформирован.', true);
+        addMessage('bot', data.plan || 'План не сформирован.', true);
+        addStageContinueButton('Перейти к анализу', continueWithPlan);
 
-        renderStages({ current_stage: 'final', completed_stages: ['question', 'sources', 'hypothesis', 'final'] });
+        renderStages({
+          current_stage: 'plan',
+          completed_stages: ['question', 'sources', 'hypothesis', 'plan']
+        });
+
         await loadResearches();
 
-        showStatus('Ответ готов. Исследование сохранено.', 'success');
+        showStatus('План исследования сформирован.', 'success');
 
       } catch (error) {
         addMessage('bot', `Ошибка: ${error.message}`);
@@ -2138,6 +2163,112 @@
       } finally {
         hideLoading();
       }
+    }
+
+    async function continueWithPlan() {
+      if (!activeSessionId) return;
+
+      showLoading('Провожу анализ гипотезы...');
+
+      try {
+        const response = await fetch(`${API_URL}/analysis`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            session_id: activeSessionId
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка выполнения анализа');
+        }
+
+        addMessage('bot', data.analysis || 'Анализ не выполнен.', true);
+        addStageContinueButton('Сформировать финальный ответ', continueWithAnalysis);
+
+        renderStages({
+          current_stage: 'analysis',
+          completed_stages: ['question', 'sources', 'hypothesis', 'plan', 'analysis']
+        });
+
+        await loadResearches();
+
+        showStatus('Анализ выполнен.', 'success');
+
+      } catch (error) {
+        addMessage('bot', `Ошибка: ${error.message}`);
+        showStatus(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    async function continueWithAnalysis() {
+      if (!activeSessionId) return;
+
+      showLoading('Формирую финальный ответ...');
+
+      try {
+        const response = await fetch(`${API_URL}/continue`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            session_id: activeSessionId,
+            hypothesis: ''
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка формирования финального ответа');
+        }
+
+        addMessage('bot', data.answer || 'Финальный ответ не сформирован.', true);
+
+        renderStages({
+          current_stage: 'final',
+          completed_stages: ['question', 'sources', 'hypothesis', 'plan', 'analysis', 'final']
+        });
+
+        await loadResearches();
+
+        showStatus('Финальный ответ готов. Исследование сохранено.', 'success');
+
+      } catch (error) {
+        addMessage('bot', `Ошибка: ${error.message}`);
+        showStatus(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    function addStageContinueButton(text, onClick) {
+      const message = document.createElement('div');
+      message.className = 'message bot';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble';
+
+      bubble.innerHTML = `
+        <div class="hypothesis-actions">
+          <button class="hypothesis-btn continue-btn">${text}</button>
+        </div>
+      `;
+
+      const btn = bubble.querySelector('.continue-btn');
+      btn.addEventListener('click', onClick);
+
+      message.appendChild(bubble);
+      outputContent.appendChild(message);
+      outputSection.classList.add('visible');
+      chatScroll.scrollTop = chatScroll.scrollHeight;
     }
 
     function enableSourceChunkTooltips() {

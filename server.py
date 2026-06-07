@@ -22,7 +22,8 @@ from rag_core import (
     connect_kb,
     add_document_to_kb,
     delete_book_from_kb,
-    append_source_chunks_to_answer
+    append_source_chunks_to_answer,
+    ollama_chat
 )
 app = FastAPI(title="RAG Bot Backend")
 
@@ -176,7 +177,6 @@ def load_kb_titles():
     save_kb_titles(titles)
     return titles
 
-
 def save_kb_titles(titles: dict):
     KB_TITLES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -222,14 +222,19 @@ class HypothesisRequest(BaseModel):
     question: str
     kb_name: Optional[str] = None
 
-
 class RegenerateHypothesisRequest(BaseModel):
     session_id: str
 
-
 class ContinueRequest(BaseModel):
     session_id: str
-    hypothesis: str    
+    hypothesis: str = ""
+
+class PlanRequest(BaseModel):
+    session_id: str
+    hypothesis: Optional[str] = None
+
+class AnalysisRequest(BaseModel):
+    session_id: str
 
 class ResearchUpdateRequest(BaseModel):
     title: Optional[str] = None
@@ -241,13 +246,50 @@ class ApplyClarificationRequest(BaseModel):
     session_id: str
     comment: str
 
+def format_research_fragments(state: dict, limit: int = 12, max_chars_per_fragment: int = 1200) -> str:
+    fragments = state.get("used_fragments") or state.get("retrieved_items") or []
+    parts = []
+
+    for idx, frag in enumerate(fragments[:limit], start=1):
+        if not isinstance(frag, dict):
+            continue
+
+        metadata = frag.get("metadata") or {}
+        source = frag.get("source") or metadata.get("source") or "Источник не указан"
+        page = frag.get("page") or metadata.get("page") or frag.get("pages") or ""
+        text = (frag.get("text") or frag.get("content") or "").strip()
+
+        if not text:
+            continue
+
+        if len(text) > max_chars_per_fragment:
+            text = text[:max_chars_per_fragment] + "..."
+
+        page_text = f", стр. {page}" if page else ""
+        parts.append(f"[Фрагмент {idx}] {source}{page_text}\n{text}")
+
+    if parts:
+        return "\n\n---\n\n".join(parts)
+
+    context = (state.get("retrieved_context") or state.get("additional_context") or "").strip()
+    return context[:12000] if context else "Фрагменты источников не найдены."
+
+def append_stage_message(state: dict, role: str, stage: str, content: str):
+    messages = state.get("messages") or []
+    messages.append({
+        "role": role,
+        "stage": stage,
+        "content": content,
+        "created_at": now_ts()
+    })
+    state["messages"] = messages
+
 @app.get("/api/researches")
 async def get_researches():
     return {
         "success": True,
         "items": load_researches()
     }
-
 
 @app.get("/api/researches/{research_id}")
 async def get_research(research_id: str):
@@ -266,7 +308,6 @@ async def get_research(research_id: str):
         "state": state
     }
 
-
 @app.post("/api/researches")
 async def create_research(req: HypothesisRequest):
     question = (req.question or "").strip()
@@ -280,13 +321,33 @@ async def create_research(req: HypothesisRequest):
 
     state = {
         "id": research_id,
+
+        # Исходный вопрос
         "question": question,
+
+        # База знаний
         "kb_name": kb_name,
+
+        # Этапы исследования
+        "hypothesis": "",
+        "refined_hypothesis": "",
+        "plan": "",
+        "analysis": "",
+        "final_answer": "",
+
+        # Служебное
         "current_stage": "question",
         "completed_stages": ["question"],
         "status": "draft",
+
+        # История сообщений
         "messages": [
-            {"role": "user", "stage": "question", "content": question, "created_at": now_ts()}
+            {
+                "role": "user",
+                "stage": "question",
+                "content": question,
+                "created_at": now_ts()
+            }
         ]
     }
 
@@ -306,7 +367,6 @@ async def create_research(req: HypothesisRequest):
         "research": upsert_research_meta(research_id),
         "state": state
     }
-
 
 @app.post("/api/researches/{research_id}/save")
 async def save_research(research_id: str, req: ResearchUpdateRequest):
@@ -638,18 +698,35 @@ async def apply_hypothesis_comment(req: ApplyClarificationRequest):
 async def continue_answer(req: ContinueRequest):
     state = get_session_state_or_404(req.session_id)
 
-    hypothesis = (req.hypothesis or "").strip()
+    current_stage = state.get("current_stage")
 
-    if not hypothesis:
-        raise HTTPException(status_code=400, detail="Гипотеза пустая")
+    # ==========================================
+    # ЭТАП PLAN -> ANALYSIS
+    # ==========================================
 
-    try:
-        state["hypothesis"] = hypothesis
-        state["refined_hypothesis"] = hypothesis
+    if current_stage == "plan":
+
+        state["current_stage"] = "analysis"
+
+        CHAT_SESSIONS[req.session_id] = state
+        save_research_state(req.session_id, state)
+
+        return {
+            "success": True,
+            "next_stage": "analysis"
+        }
+
+    # ==========================================
+    # ЭТАП ANALYSIS -> FINAL
+    # ==========================================
+
+    if current_stage == "analysis":
 
         result = continue_debate_rag(state)
 
         answer = result.get("final_answer", "Ответ не сформирован.")
+
+        result["final_answer"] = answer
 
         answer = append_source_chunks_to_answer(
             answer,
@@ -657,27 +734,184 @@ async def continue_answer(req: ContinueRequest):
         )
 
         result["id"] = req.session_id
+        result["question"] = state.get("question", "")
         result["kb_name"] = state.get("kb_name", "default")
+
+        result["hypothesis"] = state.get("hypothesis", "")
+        result["refined_hypothesis"] = state.get("refined_hypothesis", "")
+        result["plan"] = state.get("plan", "")
+        result["analysis"] = state.get("analysis", "")
+        result["final_answer"] = answer
+
         result["current_stage"] = "final"
+
         result["completed_stages"] = list(dict.fromkeys(
-            (state.get("completed_stages") or []) + ["final"]
+            (state.get("completed_stages") or [])
+            + ["final"]
         ))
+
         result["status"] = "completed"
-        result["messages"] = (state.get("messages") or []) + [
-            {"role": "assistant", "stage": "final", "content": answer, "created_at": now_ts()}
-        ]
 
         CHAT_SESSIONS[req.session_id] = result
-        save_research_state(req.session_id, result)
-        upsert_research_meta(req.session_id, current_stage="final", status="completed")
+
+        save_research_state(
+            req.session_id,
+            result
+        )
+
+        upsert_research_meta(
+            req.session_id,
+            current_stage="final",
+            status="completed"
+        )
 
         return {
             "success": True,
-            "answer": answer
+            "answer": answer,
+            "state": result
         }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(
+        status_code=400,
+        detail=f"Неверный этап: {current_stage}"
+    )
+
+@app.post("/api/plan")
+async def generate_plan(req: PlanRequest):
+    state = get_session_state_or_404(req.session_id)
+
+    hypothesis = (req.hypothesis or state.get("refined_hypothesis") or state.get("hypothesis") or "").strip()
+
+    if not hypothesis:
+        raise HTTPException(status_code=400, detail="Гипотеза пустая")
+
+    question = state.get("question", "")
+    sources_text = format_research_fragments(state)
+
+    system_prompt = """
+Ты — инженерный аналитик.
+
+Твоя задача — составить план проверки гипотезы.
+Это НЕ финальный ответ и НЕ анализ.
+
+План должен показать:
+- что нужно проверить;
+- какие данные нужно найти;
+- какие расчёты нужны;
+- какие ограничения нужно учесть;
+- какой результат должен быть получен.
+
+Не делай окончательных выводов.
+Не выдумывай факты.
+"""
+
+    user_prompt = f"""
+Вопрос пользователя:
+{question}
+
+Гипотеза:
+{hypothesis}
+
+Найденные фрагменты источников:
+{sources_text}
+
+Составь план исследования в понятной структуре.
+"""
+
+    plan = ollama_chat(system_prompt, user_prompt)
+
+    state["hypothesis"] = hypothesis
+    state["refined_hypothesis"] = hypothesis
+    state["plan"] = plan
+    state["current_stage"] = "plan"
+    state["completed_stages"] = list(dict.fromkeys(
+        (state.get("completed_stages") or []) + ["plan"]
+    ))
+
+    append_stage_message(state, "assistant", "plan", plan)
+
+    CHAT_SESSIONS[req.session_id] = state
+    save_research_state(req.session_id, state)
+    upsert_research_meta(req.session_id, current_stage="plan", status="in_progress")
+
+    return {
+        "success": True,
+        "plan": plan,
+        "state": state
+    }
+
+@app.post("/api/analysis")
+async def generate_analysis(req: AnalysisRequest):
+    state = get_session_state_or_404(req.session_id)
+
+    question = state.get("question", "")
+    hypothesis = (state.get("refined_hypothesis") or state.get("hypothesis") or "").strip()
+    plan = (state.get("plan") or "").strip()
+    sources_text = format_research_fragments(state)
+
+    if not hypothesis:
+        raise HTTPException(status_code=400, detail="Гипотеза пустая")
+
+    if not plan:
+        raise HTTPException(status_code=400, detail="План исследования ещё не сформирован")
+
+    system_prompt = """
+Ты — инженерный аналитик.
+
+Твоя задача — провести анализ гипотезы строго на основании найденных источников.
+
+Важно:
+- не делай финальный отчёт;
+- не выдумывай факты;
+- если данных нет, прямо напиши "данные не найдены";
+- отделяй подтверждения от предположений;
+- указывай ограничения и риски.
+"""
+
+    user_prompt = f"""
+Вопрос пользователя:
+{question}
+
+Гипотеза:
+{hypothesis}
+
+План исследования:
+{plan}
+
+Найденные фрагменты источников:
+{sources_text}
+
+Проведи анализ по структуре:
+
+1. Найденные подтверждения
+2. Найденные противоречия
+3. Недостающие данные
+4. Технические ограничения
+5. Риски
+6. Предварительный вывод
+
+Это именно анализ, а не финальный отчёт.
+"""
+
+    analysis = ollama_chat(system_prompt, user_prompt)
+
+    state["analysis"] = analysis
+    state["current_stage"] = "analysis"
+    state["completed_stages"] = list(dict.fromkeys(
+        (state.get("completed_stages") or []) + ["analysis"]
+    ))
+
+    append_stage_message(state, "assistant", "analysis", analysis)
+
+    CHAT_SESSIONS[req.session_id] = state
+    save_research_state(req.session_id, state)
+    upsert_research_meta(req.session_id, current_stage="analysis", status="in_progress")
+
+    return {
+        "success": True,
+        "analysis": analysis,
+        "state": state
+    }
     
 @app.post("/api/upload-doc")
 async def upload_doc(
