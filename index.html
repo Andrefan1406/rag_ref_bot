@@ -2196,7 +2196,7 @@ ${text}`;
     async function continueWithPlan() {
       if (!activeSessionId) return;
 
-      showLoading('Провожу анализ гипотезы...');
+      addInlineLoading('Провожу анализ гипотезы...');
 
       try {
         const response = await fetch(`${API_URL}/analysis`, {
@@ -2238,7 +2238,7 @@ ${text}`;
     async function continueWithAnalysis() {
       if (!activeSessionId) return;
 
-      showLoading('Формирую финальный ответ...');
+      addInlineLoading('Формирую финальный ответ...');
 
       try {
         const response = await fetch(`${API_URL}/continue`, {
@@ -2273,7 +2273,9 @@ ${text}`;
         addMessage('bot', `Ошибка: ${error.message}`);
         showStatus(error.message, 'error');
       } finally {
-        hideLoading();
+        removeInlineLoading();
+        askBtn.disabled = false;
+        kbButtons.forEach(btn => btn.disabled = false);
       }
     }
 
