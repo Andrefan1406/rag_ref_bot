@@ -494,6 +494,13 @@
       margin: 16px 0;
     }
 
+    .output-content pre,
+    .output-content code {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
     .output-content table {
       width: 100%;
       border-collapse: collapse;
@@ -1625,14 +1632,27 @@
         }
 
         else if (stageKey === 'sources') {
-          if (state.used_fragments && state.used_fragments.length) {
-            const sourcesText = state.used_fragments
+          const fragments = state.used_fragments || state.retrieved_items || [];
+
+          if (fragments.length) {
+            const sourcesText = fragments
               .map((frag, index) => {
                 const source = frag.source || frag.metadata?.source || 'Источник не указан';
                 const page = frag.page || frag.metadata?.page || frag.pages || '';
-                const text = frag.text || '';
+                let text = frag.text || frag.content || '';
 
-                return `### Фрагмент ${index + 1}\n\n**Источник:** ${source}\n\n**Страница:** ${page}\n\n${text}`;
+                text = text.replace(
+                  /(https?:\/\/[^\s]+)\s+([a-zA-Zа-яА-ЯёЁ0-9_-]{1,20})(?=\s|$)/g,
+                  '$1$2'
+                );
+
+                return `### Фрагмент ${index + 1}
+
+**Источник:** ${source}
+
+**Страница:** ${page || 'не указана'}
+
+${text}`;
               })
               .join('\n\n---\n\n');
 
@@ -1671,6 +1691,10 @@
         else if (stageKey === 'plan') {
           if (state.plan) {
             addMessage('bot', state.plan, true);
+
+            if (!state.analysis) {
+              addStageContinueButton('Перейти к анализу', continueWithPlan);
+            }
           } else {
             addMessage('bot', 'План исследования пока не сформирован.');
           }
@@ -1681,6 +1705,10 @@
         else if (stageKey === 'analysis') {
           if (state.analysis) {
             addMessage('bot', state.analysis, true);
+
+            if (!state.final_answer) {
+              addStageContinueButton('Сформировать финальный ответ', continueWithAnalysis);
+            }
           } else {
             addMessage('bot', 'Анализ пока не выполнен.');
           }

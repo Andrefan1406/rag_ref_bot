@@ -723,6 +723,15 @@ async def continue_answer(req: ContinueRequest):
     if current_stage == "analysis":
 
         result = continue_debate_rag(state)
+        
+        result["used_fragments"] = (
+            result.get("used_fragments")
+            or state.get("used_fragments")
+            or state.get("retrieved_items")
+            or []
+        )
+
+        result["retrieved_items"] = state.get("retrieved_items", [])
 
         answer = result.get("final_answer", "Ответ не сформирован.")
 
