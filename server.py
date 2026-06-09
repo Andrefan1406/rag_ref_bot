@@ -754,10 +754,14 @@ async def continue_answer(req: ContinueRequest):
 
         result["current_stage"] = "final"
 
-        result["completed_stages"] = list(dict.fromkeys(
-            (state.get("completed_stages") or [])
-            + ["final"]
-        ))
+        result["completed_stages"] = [
+            "question",
+            "sources",
+            "hypothesis",
+            "plan",
+            "analysis",
+            "final"
+        ]
 
         result["status"] = "completed"
 

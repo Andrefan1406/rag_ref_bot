@@ -291,18 +291,6 @@
       border-color: #ef4444;
     }
 
-    .stage-item.done::before {
-      content: "✓ ";
-    }
-
-    .stage-item.active::before {
-      content: "● ";
-    }
-
-    .stage-item.pending::before {
-      content: "○ ";
-    }    
-
     .main {
       flex: 1 1 auto;
       min-width: 0;
@@ -314,6 +302,74 @@
       flex-direction: column;
       overflow: hidden;
       position: relative;
+    }
+
+    .research-stage-topbar {
+      flex: 0 0 auto;
+      padding: 18px 24px 0;
+      background: var(--main-bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stage-list-top {
+      width: min(900px, 100%);
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      overflow-x: auto;
+      padding-bottom: 16px;
+    }
+
+    .stage-list-top .stage-item {
+      width: auto;
+      min-width: max-content;
+      padding: 10px 14px;
+
+      border: none;
+      border-radius: 10px;
+
+      background: transparent;
+      color: var(--text-muted);
+
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      transition: all 0.2s ease;
+    }
+
+    .stage-list-top .stage-item::before {
+      content: attr(data-step);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid #5a5a5a;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+
+    .stage-list-top .stage-item.done::before {
+      content: "✓";
+    }
+
+    .stage-list-top .stage-item.active {
+      background: #2f2f2f;
+      color: #ececec;
+    }
+
+    .stage-list-top .stage-item.active::before {
+      background: #4a4a4a;
+      border-color: #4a4a4a;
+      color: #ececec;
+    }
+
+    .stage-list-top .stage-item:hover {
+      background: var(--panel-hover);
+      color: var(--text-main);
     }
 
     .chat-header {
@@ -1296,13 +1352,6 @@
         </div>
         <button id="newResearchBtn" class="sidebar-small-btn">+ Новое исследование</button>
       </div>
-
-      <div class="sidebar-section bottom">
-        <div class="sidebar-title">Этапы исследования</div>
-        <div id="stageList" class="stage-list">
-          <!-- Этапы выбранного исследования -->
-        </div>
-      </div>
     </aside>
 
     <main class="main">
@@ -1314,6 +1363,12 @@
           </div>
         </div>
       </header>
+    
+      <div class="research-stage-topbar">
+        <div id="stageList" class="stage-list stage-list-top">
+          <!-- Этапы выбранного исследования -->
+        </div>
+      </div>
 
       <section class="chat-scroll">
         <div class="chat-wrap">
@@ -1572,7 +1627,7 @@
 
       stageList.innerHTML = '';
 
-      RESEARCH_STAGES.forEach(stage => {
+      RESEARCH_STAGES.forEach((stage, index) => {
         const btn = document.createElement('button');
         btn.className = 'stage-item';
 
@@ -1585,6 +1640,8 @@
         }
 
         btn.textContent = stage.title;
+        btn.dataset.stage = stage.key;
+        btn.dataset.step = index + 1;
 
         btn.addEventListener('click', () => {
           openStage(stage.key);
