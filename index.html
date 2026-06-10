@@ -1098,6 +1098,121 @@
       text-overflow: unset;
     }
 
+    .source-card {
+      background: #171717;
+      border: 1px solid #2f2f2f;
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .source-card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .source-card-number {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1px solid #4a4a4a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ececec;
+      flex-shrink: 0;
+    }
+
+    .source-card-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .source-card-title {
+      font-weight: 600;
+      color: #ececec;
+    }
+
+    .source-card-meta {
+      margin-top: 4px;
+      color: #8f8f8f;
+      font-size: 13px;
+    }
+
+    .source-card-text {
+      margin-top: 14px;
+      line-height: 1.7;
+      color: #b4b4b4;
+      white-space: pre-wrap;
+    }
+
+    .source-remove-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      padding: 10px 18px;
+
+      border: 1px solid #4a4a4a;
+      border-radius: 12px;
+
+      background: rgba(255,255,255,0.02);
+
+      color: #b4b4b4;
+      font-size: 14px;
+      font-weight: 500;
+
+      cursor: pointer;
+
+      transition: all 0.2s ease;
+    }
+
+    .source-remove-btn:hover {
+      background: #2f2f2f;
+      border-color: #707070;
+      color: #ececec;
+    }
+
+    .sources-dirty-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      border: 1px solid #4a4a4a;
+      border-radius: 14px;
+      background: #171717;
+      color: #ececec;
+    }
+
+    .sources-dirty-text {
+      color: #b4b4b4;
+      font-size: 14px;
+    }
+
+    .sources-dirty-text strong {
+      display: block;
+      color: #ececec;
+      margin-bottom: 4px;
+    }
+
+    .sources-rebuild-btn {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid #4a4a4a;
+      background: #2f2f2f;
+      color: #ececec;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    .sources-rebuild-btn:hover {
+      background: #3a3a3a;
+    }
+
     @media (max-width: 1024px) {
       .right-sidebar {
         display: none;
@@ -1692,28 +1807,11 @@
           const fragments = state.used_fragments || state.retrieved_items || [];
 
           if (fragments.length) {
-            const sourcesText = fragments
-              .map((frag, index) => {
-                const source = frag.source || frag.metadata?.source || 'Источник не указан';
-                const page = frag.page || frag.metadata?.page || frag.pages || '';
-                let text = frag.text || frag.content || '';
+            if (state.sources_dirty || state.needs_rebuild) {
+              renderSourcesDirtyBanner();
+            }
 
-                text = text.replace(
-                  /(https?:\/\/[^\s]+)\s+([a-zA-Zа-яА-ЯёЁ0-9_-]{1,20})(?=\s|$)/g,
-                  '$1$2'
-                );
-
-                return `### Фрагмент ${index + 1}
-
-**Источник:** ${source}
-
-**Страница:** ${page || 'не указана'}
-
-${text}`;
-              })
-              .join('\n\n---\n\n');
-
-            addMessage('bot', sourcesText, true);
+            renderSourceCards(fragments);
           } else {
             addMessage('bot', 'Источники для этого этапа пока не сохранены.');
           }
@@ -1785,6 +1883,130 @@ ${text}`;
       } catch (error) {
         showStatus(error.message, 'error');
       }
+    }
+
+    function renderSourcesDirtyBanner() {
+      const banner = document.createElement('div');
+      banner.className = 'sources-dirty-banner';
+
+      banner.innerHTML = `
+        <div class="sources-dirty-text">
+          <strong>Источники изменены</strong>
+          <div>Гипотеза, план и анализ требуют обновления.</div>
+        </div>
+
+        <button class="sources-rebuild-btn">
+          Перестроить исследование
+        </button>
+      `;
+
+      banner
+        .querySelector('.sources-rebuild-btn')
+        .addEventListener('click', async () => {
+          await rebuildResearchFromSources();
+        });
+
+      outputContent.appendChild(banner);
+    }
+
+    async function rebuildResearchFromSources() {
+      showStatus('Перестроение исследования подключим следующим шагом.', 'success');
+    }
+
+    function renderSourceCards(fragments) {
+      fragments.forEach((frag, index) => {
+        const source = frag.source || frag.metadata?.source || 'Источник не указан';
+        const page = frag.page || frag.metadata?.page || frag.pages || '';
+        let text = frag.text || frag.content || '';
+
+        text = text.replace(
+          /(https?:\/\/[^\s]+)\s+([a-zA-Zа-яА-ЯёЁ0-9_-]{1,20})(?=\s|$)/g,
+          '$1$2'
+        );
+
+        const card = document.createElement('div');
+        card.className = 'source-card';
+
+        card.innerHTML = `
+          <div class="source-card-header">
+            <div class="source-card-number">${index + 1}</div>
+
+            <div class="source-card-info">
+              <div class="source-card-title">${escapeHtml(source)}</div>
+              <div class="source-card-meta">Страница: ${escapeHtml(page || 'не указана')}</div>
+            </div>
+
+            <button
+              class="source-remove-btn"
+              data-index="${index}"
+              title="Исключить источник"
+            >
+              🗑️ Исключить
+            </button>
+          </div>
+
+          <div class="source-card-text">
+            ${escapeHtml(text)}
+          </div>
+        `;
+
+        outputContent.appendChild(card);
+      });
+
+      bindSourceRemoveButtons();
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function bindSourceRemoveButtons() {
+      document.querySelectorAll('.source-remove-btn').forEach(button => {
+        button.addEventListener('click', async () => {
+          const index = Number(button.dataset.index);
+
+          if (!activeResearchId) {
+            showStatus('Исследование не выбрано.', 'error');
+            return;
+          }
+
+          try {
+            showLoading('Исключаю источник из исследования.');
+
+            const response = await fetch(`${API_URL}/sources/exclude`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                session_id: activeResearchId,
+                fragment_index: index
+              })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.detail || 'Ошибка исключения источника');
+            }
+
+            showStatus('Источник исключён из исследования.', 'success');
+
+            await openStage('sources');
+            await loadResearches();
+
+          } catch (error) {
+            showStatus(error.message, 'error');
+          } finally {
+            hideLoading();
+          }
+        });
+      });
     }
 
     async function loadResearches() {

@@ -246,6 +246,10 @@ class ApplyClarificationRequest(BaseModel):
     session_id: str
     comment: str
 
+class ExcludeSourceRequest(BaseModel):
+    session_id: str
+    fragment_index: int
+
 def format_research_fragments(state: dict, limit: int = 12, max_chars_per_fragment: int = 1200) -> str:
     fragments = state.get("used_fragments") or state.get("retrieved_items") or []
     parts = []
@@ -788,6 +792,59 @@ async def continue_answer(req: ContinueRequest):
         status_code=400,
         detail=f"Неверный этап: {current_stage}"
     )
+
+@app.post("/api/sources/exclude")
+async def exclude_source(req: ExcludeSourceRequest):
+    state = get_session_state_or_404(req.session_id)
+
+    fragments = state.get("used_fragments") or state.get("retrieved_items") or []
+
+    if req.fragment_index < 0 or req.fragment_index >= len(fragments):
+        raise HTTPException(status_code=400, detail="Источник не найден")
+
+    excluded_fragment = fragments.pop(req.fragment_index)
+
+    excluded = state.get("excluded_fragments") or []
+    excluded.append(excluded_fragment)
+
+    state["used_fragments"] = fragments
+    state["excluded_fragments"] = excluded
+
+    state["current_stage"] = "sources"
+
+    # очищаем последующие этапы, потому что источник изменился
+    state["used_fragments"] = fragments
+    state["excluded_fragments"] = excluded
+
+    state["sources_dirty"] = True
+    state["needs_rebuild"] = True
+
+    state["sources_dirty_message"] = (
+        "Источники изменены. Гипотеза, план и анализ требуют обновления."
+    )
+
+    state["current_stage"] = "sources"
+
+    append_stage_message(
+        state,
+        "user",
+        "sources",
+        f"Исключён источник №{req.fragment_index + 1}"
+    )
+
+    CHAT_SESSIONS[req.session_id] = state
+    save_research_state(req.session_id, state)
+    upsert_research_meta(
+        req.session_id,
+        current_stage="sources",
+        status="in_progress"
+    )
+
+    return {
+        "success": True,
+        "state": state,
+        "excluded_fragment": excluded_fragment
+    }
 
 @app.post("/api/plan")
 async def generate_plan(req: PlanRequest):
